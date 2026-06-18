@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "265348681220",
+    "project_id": "symonskitechen",
+    "storage_bucket": "symonskitechen.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:265348681220:android:8469427042ee82ed17ef51",
+        "android_client_info": {
+          "package_name": "com.symonskitchin.symons_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCo-AfUB2UHLDUWsFEcjLYjHxXh0UtYZfE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

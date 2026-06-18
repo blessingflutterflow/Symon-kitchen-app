@@ -1,0 +1,11 @@
+rules_version = '2';
+
+// TEMPORARY — wide open while the app is in active development.
+// MUST be locked back down to per-owner rules before going live.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}
