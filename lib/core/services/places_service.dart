@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 
@@ -49,48 +51,62 @@ class PlaceDetails {
   }
 }
 
-/// Wraps the Google Places Autocomplete + Details REST APIs, restricted to
-/// South African addresses (matches where Symon's Kitchin operates).
+/// Wraps the Google Places Autocomplete + Details / Geocoding / Directions REST
+/// APIs, restricted to South African addresses (where Symon's Kitchin operates).
+///
+/// On mobile these are called directly over HTTP. On **web** the same calls are
+/// proxied through the `mapsProxy` Cloud Function — Google's web-service APIs
+/// don't send CORS headers, so the browser can't call them directly.
 class PlacesService {
   static const _apiKey = 'AIzaSyB4wHFe2xOgiBKAXmoENZbHwfa-bMQaE-U';
   static const _baseUrl = 'https://maps.googleapis.com/maps/api';
+  static final _functions = FirebaseFunctions.instanceFor(region: 'africa-south1');
+
+  /// Calls a Google Maps web-service endpoint and returns the decoded JSON.
+  /// Direct HTTP on mobile; via the Cloud Function proxy on web.
+  static Future<Map<String, dynamic>?> _fetch(
+    String endpoint,
+    Map<String, String> params,
+  ) async {
+    try {
+      if (kIsWeb) {
+        final res = await _functions
+            .httpsCallable('mapsProxy')
+            .call({'endpoint': endpoint, 'params': params});
+        // Round-trip through JSON so nested maps/lists get clean Dart types.
+        return jsonDecode(jsonEncode(res.data)) as Map<String, dynamic>;
+      }
+      final uri = Uri.parse('$_baseUrl/$endpoint')
+          .replace(queryParameters: {...params, 'key': _apiKey});
+      final res = await http.get(uri).timeout(const Duration(seconds: 10));
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
 
   static Future<List<PlacePrediction>> autocomplete(String input) async {
     if (input.trim().isEmpty) return [];
-    try {
-      final uri = Uri.parse('$_baseUrl/place/autocomplete/json').replace(queryParameters: {
-        'input': input,
-        'components': 'country:za',
-        'types': 'address',
-        'key': _apiKey,
-      });
-      final res = await http.get(uri).timeout(const Duration(seconds: 10));
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-      if (data['status'] == 'OK') {
-        return (data['predictions'] as List)
-            .map((p) => PlacePrediction.fromMap(p as Map<String, dynamic>))
-            .toList();
-      }
-    } catch (_) {
-      return [];
+    final data = await _fetch('place/autocomplete/json', {
+      'input': input,
+      'components': 'country:za',
+      'types': 'address',
+    });
+    if (data?['status'] == 'OK') {
+      return (data!['predictions'] as List)
+          .map((p) => PlacePrediction.fromMap(Map<String, dynamic>.from(p as Map)))
+          .toList();
     }
     return [];
   }
 
   static Future<PlaceDetails?> getDetails(String placeId) async {
-    try {
-      final uri = Uri.parse('$_baseUrl/place/details/json').replace(queryParameters: {
-        'place_id': placeId,
-        'fields': 'geometry,formatted_address',
-        'key': _apiKey,
-      });
-      final res = await http.get(uri).timeout(const Duration(seconds: 10));
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-      if (data['status'] == 'OK') {
-        return PlaceDetails.fromMap(data['result'] as Map<String, dynamic>);
-      }
-    } catch (_) {
-      return null;
+    final data = await _fetch('place/details/json', {
+      'place_id': placeId,
+      'fields': 'geometry,formatted_address',
+    });
+    if (data?['status'] == 'OK') {
+      return PlaceDetails.fromMap(Map<String, dynamic>.from(data!['result'] as Map));
     }
     return null;
   }
@@ -98,42 +114,24 @@ class PlacesService {
   /// Resolves a free-text address to a lat/lng via the Geocoding API.
   static Future<PlaceDetails?> geocode(String address) async {
     if (address.trim().isEmpty) return null;
-    try {
-      final uri = Uri.parse('$_baseUrl/geocode/json').replace(queryParameters: {
-        'address': address,
-        'key': _apiKey,
-      });
-      final res = await http.get(uri).timeout(const Duration(seconds: 10));
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-      if (data['status'] == 'OK') {
-        final results = data['results'] as List;
-        if (results.isNotEmpty) {
-          return PlaceDetails.fromMap(results.first as Map<String, dynamic>);
-        }
+    final data = await _fetch('geocode/json', {'address': address});
+    if (data?['status'] == 'OK') {
+      final results = data!['results'] as List;
+      if (results.isNotEmpty) {
+        return PlaceDetails.fromMap(Map<String, dynamic>.from(results.first as Map));
       }
-    } catch (_) {
-      return null;
     }
     return null;
   }
 
   /// Resolves a lat/lng to a human-readable formatted address (reverse geocoding).
   static Future<String?> reverseGeocode(double lat, double lng) async {
-    try {
-      final uri = Uri.parse('$_baseUrl/geocode/json').replace(queryParameters: {
-        'latlng': '$lat,$lng',
-        'key': _apiKey,
-      });
-      final res = await http.get(uri).timeout(const Duration(seconds: 10));
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-      if (data['status'] == 'OK') {
-        final results = data['results'] as List;
-        if (results.isNotEmpty) {
-          return results.first['formatted_address'] as String;
-        }
+    final data = await _fetch('geocode/json', {'latlng': '$lat,$lng'});
+    if (data?['status'] == 'OK') {
+      final results = data!['results'] as List;
+      if (results.isNotEmpty) {
+        return results.first['formatted_address'] as String;
       }
-    } catch (_) {
-      return null;
     }
     return null;
   }
@@ -141,31 +139,24 @@ class PlacesService {
   /// Fetches a driving route between two points via the Directions API,
   /// returning the decoded polyline plus ETA/distance for the leg.
   static Future<RouteResult?> getRoute(LatLng origin, LatLng destination) async {
-    try {
-      final uri = Uri.parse('$_baseUrl/directions/json').replace(queryParameters: {
-        'origin': '${origin.latitude},${origin.longitude}',
-        'destination': '${destination.latitude},${destination.longitude}',
-        'mode': 'driving',
-        'key': _apiKey,
-      });
-      final res = await http.get(uri).timeout(const Duration(seconds: 10));
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-      if (data['status'] == 'OK') {
-        final routes = data['routes'] as List;
-        if (routes.isEmpty) return null;
-        final route = routes.first as Map<String, dynamic>;
-        final legs = route['legs'] as List;
-        if (legs.isEmpty) return null;
-        final leg = legs.first as Map<String, dynamic>;
-        final overview = route['overview_polyline'] as Map<String, dynamic>;
-        return RouteResult(
-          points: _decodePolyline(overview['points'] as String),
-          durationSeconds: (leg['duration'] as Map<String, dynamic>)['value'] as int,
-          distanceMeters: (leg['distance'] as Map<String, dynamic>)['value'] as int,
-        );
-      }
-    } catch (_) {
-      return null;
+    final data = await _fetch('directions/json', {
+      'origin': '${origin.latitude},${origin.longitude}',
+      'destination': '${destination.latitude},${destination.longitude}',
+      'mode': 'driving',
+    });
+    if (data?['status'] == 'OK') {
+      final routes = data!['routes'] as List;
+      if (routes.isEmpty) return null;
+      final route = routes.first as Map<String, dynamic>;
+      final legs = route['legs'] as List;
+      if (legs.isEmpty) return null;
+      final leg = legs.first as Map<String, dynamic>;
+      final overview = route['overview_polyline'] as Map<String, dynamic>;
+      return RouteResult(
+        points: _decodePolyline(overview['points'] as String),
+        durationSeconds: (leg['duration'] as Map<String, dynamic>)['value'] as int,
+        distanceMeters: (leg['distance'] as Map<String, dynamic>)['value'] as int,
+      );
     }
     return null;
   }

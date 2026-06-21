@@ -30,6 +30,9 @@ class _DishDetailScreenState extends ConsumerState<DishDetailScreen> {
 
   MenuItemModel get _item => widget.item;
 
+  // Drinks present their free choice as "flavour" rather than "sides".
+  bool get _isDrink => _item.category == 'Beverages';
+
   double get _basePrice =>
       _item.hasVariants ? _item.variants[_variantIndex].price : _item.price;
 
@@ -211,9 +214,14 @@ class _DishDetailScreenState extends ConsumerState<DishDetailScreen> {
   }
 
   Widget _buildSides() {
+    final n = _item.sidesAllowed;
+    final title = _isDrink
+        ? (n > 1
+            ? 'Choose your flavours   (${_sides.length}/$n)'
+            : 'Choose your flavour   (${_sides.length}/$n)')
+        : 'Selection of any $n side${n > 1 ? 's' : ''}   (${_sides.length}/$n)';
     return _section(
-      'Selection of any ${_item.sidesAllowed} side${_item.sidesAllowed > 1 ? 's' : ''}'
-      '   (${_sides.length}/${_item.sidesAllowed})',
+      title,
       Column(
         children: _item.sideOptions.map((side) {
           final selected = _sides.contains(side);
@@ -225,7 +233,12 @@ class _DishDetailScreenState extends ConsumerState<DishDetailScreen> {
                 _sides.add(side);
               }
             }),
-            child: _optionRow(selected: selected, isRadio: false, label: side, trailing: 'Free'),
+            child: _optionRow(
+              selected: selected,
+              isRadio: false,
+              label: side,
+              trailing: _isDrink ? '' : 'Free',
+            ),
           );
         }).toList(),
       ),
@@ -352,7 +365,9 @@ class _DishDetailScreenState extends ConsumerState<DishDetailScreen> {
                 child: Text(
                   canAdd
                       ? 'Add to Cart  ·  R ${total.toStringAsFixed(2)}'
-                      : 'Choose ${_item.sidesAllowed} side${_item.sidesAllowed > 1 ? 's' : ''}',
+                      : _isDrink
+                          ? 'Choose your flavour'
+                          : 'Choose ${_item.sidesAllowed} side${_item.sidesAllowed > 1 ? 's' : ''}',
                   style: GoogleFonts.inter(
                     color: canAdd ? AppColors.background : AppColors.creamMuted,
                     fontSize: 15,
