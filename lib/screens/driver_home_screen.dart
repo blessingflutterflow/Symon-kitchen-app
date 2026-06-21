@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:pointer_interceptor/pointer_interceptor.dart';
 
 import '../core/constants/app_routes.dart';
 import '../core/services/location_service.dart';
@@ -18,7 +19,6 @@ import '../data/auth_provider.dart';
 import '../data/driver_model.dart';
 import '../data/order_provider.dart';
 import '../data/tracking_provider.dart';
-import 'widgets/route_eta_pill.dart';
 
 class DriverHomeScreen extends ConsumerStatefulWidget {
   const DriverHomeScreen({super.key});
@@ -28,13 +28,9 @@ class DriverHomeScreen extends ConsumerStatefulWidget {
 }
 
 class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen> {
-  // Fraction of the body height the bottom sheet occupies at rest. The map
-  // is sized to stop exactly here so its DOM element (web) never sits under
-  // the sheet's interactive content.
-  static const _sheetInitialSize = 0.3;
-
   bool _togglingOnline = false;
   bool _trackingStarted = false;
+  bool _cardCollapsed = false; // tap the handle to minimise the card and see the map
 
   Future<void> _toggleOnline(DriverModel driver) async {
     if (_togglingOnline) return;
@@ -176,28 +172,22 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen> {
         activeOrder.deliveryLng != null) {
       destination = LatLng(activeOrder.deliveryLat!, activeOrder.deliveryLng!);
     }
+    // Full-screen map with a compact floating card at the bottom (mirrors
+    // Tolta). The card has margins on all sides so it never reaches the screen
+    // edges — combined with PointerInterceptor, this keeps taps reliable on web
+    // (no cursor ambiguity between the map and the card's buttons).
     return NarrowBody(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          // Bound the map to stop where the bottom sheet begins (at rest) so
-          // the map's DOM element (web) never sits under the sheet — that
-          // overlap caused cursor/click conflicts with the sheet's buttons.
-          final mapHeight = constraints.maxHeight * (1 - _sheetInitialSize);
-          return Stack(
-            children: [
-              Container(color: AppColors.background),
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                height: mapHeight,
-                child: _DriverMap(destination: destination),
-              ),
-              _buildTopBar(driver),
-              _buildBottomSheet(driver),
-            ],
-          );
-        },
+      child: Stack(
+        children: [
+          Positioned.fill(child: _DriverMap(destination: destination)),
+          _buildTopBar(driver),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SafeArea(top: false, child: _buildBottomCard(driver)),
+          ),
+        ],
       ),
     );
   }
@@ -207,7 +197,8 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen> {
       top: 0,
       left: 0,
       right: 0,
-      child: SafeArea(
+      child: PointerInterceptor(
+        child: SafeArea(
         bottom: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
@@ -318,149 +309,132 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen> {
           ),
         ),
       ),
+      ),
     );
   }
 
-  Widget _buildBottomSheet(DriverModel driver) {
-    return DraggableScrollableSheet(
-      initialChildSize: _sheetInitialSize,
-      minChildSize: 0.18,
-      maxChildSize: 0.85,
-      builder: (context, scrollController) {
-        return Container(
-          decoration: const BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black54,
-                blurRadius: 16,
-                offset: Offset(0, -4),
-              ),
-            ],
-          ),
-          child: SafeArea(
-            top: false,
-            child: Column(
-              children: [
-                const SizedBox(height: 10),
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.divider,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
+  Widget _buildBottomCard(DriverModel driver) {
+    // PointerInterceptor: on web, ensures taps on the card (Accept, online
+    // toggle, etc.) reach Flutter instead of being swallowed by the Google
+    // Map's DOM element underneath. No-op on mobile.
+    return PointerInterceptor(
+      child: Container(
+        margin: const EdgeInsets.all(16),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.6,
+        ),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: const [
+            BoxShadow(color: Colors.black54, blurRadius: 16, offset: Offset(0, -4)),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Tappable handle — collapses/expands the card so the driver can
+            // see the full map underneath.
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => setState(() => _cardCollapsed = !_cardCollapsed),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppColors.divider,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    Icon(
+                      _cardCollapsed
+                          ? Icons.keyboard_arrow_up_rounded
+                          : Icons.keyboard_arrow_down_rounded,
+                      color: AppColors.creamMuted,
+                      size: 20,
+                    ),
+                  ],
                 ),
-                Expanded(child: _buildSheetContent(driver, scrollController)),
-              ],
+              ),
             ),
-          ),
-        );
-      },
+            if (!_cardCollapsed) Flexible(child: _buildSheetContent(driver)),
+          ],
+        ),
+      ),
     );
   }
 
-  Widget _buildSheetContent(DriverModel driver, ScrollController controller) {
+  Widget _buildSheetContent(DriverModel driver) {
     // Active delivery takes absolute priority
-    final activeAsync = ref.watch(myActiveDeliveryProvider);
-    final activeOrder = activeAsync.valueOrNull;
+    final activeOrder = ref.watch(myActiveDeliveryProvider).valueOrNull;
     if (activeOrder != null) {
-      return CustomScrollView(
-        controller: controller,
-        slivers: [
-          SliverPadding(
-            padding: const EdgeInsets.all(20),
-            sliver: SliverToBoxAdapter(
-              child: _ActiveDeliveryCard(order: activeOrder),
-            ),
-          ),
-        ],
+      return SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: _ActiveDeliveryCard(order: activeOrder),
       );
     }
 
     if (!driver.isOnline) {
-      return CustomScrollView(
-        controller: controller,
-        slivers: [
-          SliverFillRemaining(
-            hasScrollBody: false,
-            child: _IdleSheet(
-              isOnline: false,
-              togglingOnline: _togglingOnline,
-              onToggle: () => _toggleOnline(driver),
-              subtitle: 'Go online to start receiving delivery requests.',
-            ),
-          ),
-        ],
+      return _idleContent(
+        isOnline: false,
+        onToggle: () => _toggleOnline(driver),
+        subtitle: 'Go online to start receiving delivery requests.',
       );
     }
 
     final availableAsync = ref.watch(availableOrdersProvider);
     return availableAsync.when(
-      loading: () => CustomScrollView(
-        controller: controller,
-        slivers: [
-          SliverFillRemaining(
-            hasScrollBody: false,
-            child: _IdleSheet(
-              isOnline: true,
-              togglingOnline: _togglingOnline,
-              onToggle: () => _toggleOnline(driver),
-              subtitle: 'Looking for delivery requests near you…',
-              showPulse: true,
-            ),
-          ),
-        ],
+      loading: () => _idleContent(
+        isOnline: true,
+        onToggle: () => _toggleOnline(driver),
+        subtitle: 'Looking for delivery requests near you…',
+        showPulse: true,
       ),
-      error: (err, _) => CustomScrollView(
-        controller: controller,
-        slivers: [
-          SliverFillRemaining(
-            hasScrollBody: false,
-            child: _IdleSheet(
-              isOnline: true,
-              togglingOnline: _togglingOnline,
-              onToggle: () => _toggleOnline(driver),
-              subtitle: err.toString(),
-            ),
-          ),
-        ],
+      error: (err, _) => _idleContent(
+        isOnline: true,
+        onToggle: () => _toggleOnline(driver),
+        subtitle: err.toString(),
       ),
       data: (orders) {
         if (orders.isEmpty) {
-          return CustomScrollView(
-            controller: controller,
-            slivers: [
-              SliverFillRemaining(
-                hasScrollBody: false,
-                child: _IdleSheet(
-                  isOnline: true,
-                  togglingOnline: _togglingOnline,
-                  onToggle: () => _toggleOnline(driver),
-                  subtitle:
-                      'You\'ll see incoming delivery requests here. Hang tight!',
-                  showPulse: true,
-                ),
-              ),
-            ],
+          return _idleContent(
+            isOnline: true,
+            onToggle: () => _toggleOnline(driver),
+            subtitle: 'You\'ll see incoming delivery requests here. Hang tight!',
+            showPulse: true,
           );
         }
-        return CustomScrollView(
-          controller: controller,
-          slivers: [
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-              sliver: SliverList.separated(
-                itemCount: orders.length,
-                separatorBuilder: (context, i) => const SizedBox(height: 14),
-                itemBuilder: (context, i) =>
-                    _IncomingOrderCard(order: orders[i], driverId: driver.uid),
-              ),
-            ),
-          ],
+        return ListView.separated(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+          itemCount: orders.length,
+          separatorBuilder: (context, i) => const SizedBox(height: 14),
+          itemBuilder: (context, i) =>
+              _IncomingOrderCard(order: orders[i], driverId: driver.uid),
         );
       },
+    );
+  }
+
+  Widget _idleContent({
+    required bool isOnline,
+    required VoidCallback onToggle,
+    required String subtitle,
+    bool showPulse = false,
+  }) {
+    return SingleChildScrollView(
+      child: _IdleSheet(
+        isOnline: isOnline,
+        togglingOnline: _togglingOnline,
+        onToggle: onToggle,
+        subtitle: subtitle,
+        showPulse: showPulse,
+      ),
     );
   }
 }
@@ -530,12 +504,6 @@ class _DriverMapState extends State<_DriverMap> {
       setState(() => _position = LatLng(pos.latitude, pos.longitude));
       _maybeFetchRoute();
     });
-  }
-
-  Future<void> _recenter() async {
-    final position = _position;
-    if (position == null || _controller == null) return;
-    await _controller!.animateCamera(CameraUpdate.newLatLngZoom(position, 15));
   }
 
   /// Fits the camera to show both the driver and the active delivery's
@@ -660,7 +628,7 @@ class _DriverMapState extends State<_DriverMap> {
           polylineId: const PolylineId('route'),
           points: _route!.points,
           color: AppColors.gold,
-          width: 4,
+          width: 6,
         ),
     };
 
@@ -671,7 +639,9 @@ class _DriverMapState extends State<_DriverMap> {
         _fitCamera();
       },
       myLocationEnabled: true,
-      myLocationButtonEnabled: false,
+      // Native recenter button on mobile (correctly positioned by the SDK);
+      // hidden on web where map gestures are disabled anyway.
+      myLocationButtonEnabled: !kIsWeb,
       zoomControlsEnabled: false,
       mapToolbarEnabled: false,
       compassEnabled: false,
@@ -692,35 +662,6 @@ class _DriverMapState extends State<_DriverMap> {
         // view can break its touch forwarding, and the bug doesn't occur
         // there, so the map stays fully interactive.
         kIsWeb ? ClipRect(child: IgnorePointer(child: map)) : map,
-        if (_route != null)
-          Positioned(
-            left: 16,
-            bottom: 16,
-            child: RouteEtaPill(route: _route!),
-          ),
-        Positioned(
-          right: 16,
-          bottom: 16,
-          child: GestureDetector(
-            onTap: _recenter,
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                shape: BoxShape.circle,
-                border: Border.all(color: AppColors.divider),
-                boxShadow: const [
-                  BoxShadow(color: Colors.black45, blurRadius: 8),
-                ],
-              ),
-              child: const Icon(
-                Icons.my_location_rounded,
-                color: AppColors.gold,
-                size: 22,
-              ),
-            ),
-          ),
-        ),
       ],
     );
   }
@@ -748,7 +689,7 @@ class _IdleSheet extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(

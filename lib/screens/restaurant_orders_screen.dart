@@ -331,17 +331,150 @@ class _OrderCardState extends State<_OrderCard> {
     try {
       await OrderService.processRefund(widget.order.id);
       if (mounted) setState(() { _status = 'cancelled'; _updating = false; });
-    } catch (_) {
-      if (mounted) setState(() => _updating = false);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _updating = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not process: ${e.toString()}'),
+            backgroundColor: const Color(0xFFFF5252),
+          ),
+        );
+      }
     }
   }
 
   Future<void> _rejectCancellation() async {
     if (_updating) return;
-    final previous = widget.order.cancellationReason != null ? 'confirmed' : 'placed';
+    final previous = widget.order.previousStatus ?? 'placed';
     setState(() => _updating = true);
     await OrderService.rejectCancellation(widget.order.id, previous);
     if (mounted) setState(() { _status = previous; _updating = false; });
+  }
+
+  Future<void> _showCancellationReview(BuildContext context) async {
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.warning_amber_rounded,
+                    color: Color(0xFFFF9B21), size: 20),
+                const SizedBox(width: 8),
+                Text('Cancellation Request',
+                    style: GoogleFonts.inter(
+                        color: AppColors.cream,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            // Customer info
+            if (widget.order.customerName != null) ...[
+              Text('Customer',
+                  style: GoogleFonts.inter(
+                      color: AppColors.creamMuted, fontSize: 11)),
+              const SizedBox(height: 2),
+              Text(widget.order.customerName!,
+                  style: GoogleFonts.inter(
+                      color: AppColors.cream,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700)),
+              const SizedBox(height: 14),
+            ],
+            // Order summary
+            Text('Order',
+                style: GoogleFonts.inter(
+                    color: AppColors.creamMuted, fontSize: 11)),
+            const SizedBox(height: 2),
+            Text('#$_shortId  ·  R ${widget.order.total.toStringAsFixed(2)}',
+                style: GoogleFonts.inter(
+                    color: AppColors.cream,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700)),
+            const SizedBox(height: 14),
+            // Reason
+            Text('Reason for cancellation',
+                style: GoogleFonts.inter(
+                    color: AppColors.creamMuted, fontSize: 11)),
+            const SizedBox(height: 6),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFF9B21).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                    color: const Color(0xFFFF9B21).withValues(alpha: 0.4)),
+              ),
+              child: Text(
+                widget.order.cancellationReason ?? 'No reason provided',
+                style: GoogleFonts.inter(
+                    color: AppColors.cream,
+                    fontSize: 14,
+                    height: 1.4),
+              ),
+            ),
+            const SizedBox(height: 24),
+            // Action buttons
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _updating
+                        ? null
+                        : () {
+                            Navigator.of(ctx).pop();
+                            _rejectCancellation();
+                          },
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.creamMuted,
+                      side: BorderSide(color: AppColors.divider),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: Text('Reject',
+                        style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton(
+                    onPressed: _updating
+                        ? null
+                        : () {
+                            Navigator.of(ctx).pop();
+                            _confirmRefund();
+                          },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFFF5252),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: Text('Confirm Refund',
+                        style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
   }
 
   String get _relativeTime {
@@ -359,15 +492,19 @@ class _OrderCardState extends State<_OrderCard> {
   @override
   Widget build(BuildContext context) {
     final isNew = _status == 'placed';
+    final isCancellationRequest = _status == 'cancellation_requested';
 
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color:
-              isNew ? AppColors.gold.withValues(alpha: 0.5) : AppColors.divider,
-          width: isNew ? 1.5 : 1,
+          color: isCancellationRequest
+              ? const Color(0xFFFF9B21).withValues(alpha: 0.7)
+              : isNew
+                  ? AppColors.gold.withValues(alpha: 0.5)
+                  : AppColors.divider,
+          width: (isNew || isCancellationRequest) ? 1.5 : 1,
         ),
       ),
       child: Column(
@@ -446,23 +583,50 @@ class _OrderCardState extends State<_OrderCard> {
                   children: widget.order.items
                       .map(
                         (item) => Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
-                          child: Row(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                '${item.quantity}×  ${item.name}',
-                                style: GoogleFonts.inter(
-                                    color: AppColors.cream, fontSize: 12.5),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      item.variantLabel != null
+                                          ? '${item.quantity}×  ${item.name} (${item.variantLabel})'
+                                          : '${item.quantity}×  ${item.name}',
+                                      style: GoogleFonts.inter(
+                                          color: AppColors.cream, fontSize: 12.5),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'R ${(item.price * item.quantity).toStringAsFixed(2)}',
+                                    style: GoogleFonts.inter(
+                                      color: AppColors.creamMuted,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const Spacer(),
-                              Text(
-                                'R ${(item.price * item.quantity).toStringAsFixed(2)}',
-                                style: GoogleFonts.inter(
-                                  color: AppColors.creamMuted,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
+                              if (item.sides.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 22, top: 2),
+                                  child: Text(
+                                    'Sides: ${item.sides.join(', ')}',
+                                    style: GoogleFonts.inter(
+                                        color: AppColors.creamMuted, fontSize: 11),
+                                  ),
                                 ),
-                              ),
+                              if (item.extras.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 22, top: 2),
+                                  child: Text(
+                                    'Extras: ${item.extras.map((e) => e.name).join(', ')}',
+                                    style: GoogleFonts.inter(
+                                        color: AppColors.creamMuted, fontSize: 11),
+                                  ),
+                                ),
                             ],
                           ),
                         ),
@@ -476,60 +640,22 @@ class _OrderCardState extends State<_OrderCard> {
             Divider(height: 1, color: AppColors.divider),
             Padding(
               padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.warning_amber_rounded,
-                          color: Color(0xFFFF9B21), size: 16),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Customer Cancellation Request',
-                        style: GoogleFonts.inter(
-                          color: const Color(0xFFFF9B21),
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w700,
-                        ),
+              child: _updating
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: CircularProgressIndicator(
+                            color: Color(0xFFFF5252), strokeWidth: 2),
                       ),
-                    ],
-                  ),
-                  if (widget.order.cancellationReason != null) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      'Reason: ${widget.order.cancellationReason}',
-                      style: GoogleFonts.inter(
-                          color: AppColors.creamMuted, fontSize: 12),
+                    )
+                  : _ActionButton(
+                      label: '⚠️  Review Cancellation Request',
+                      color: const Color(0xFFFF9B21).withValues(alpha: 0.15),
+                      textColor: const Color(0xFFFF9B21),
+                      bordered: true,
+                      loading: false,
+                      onTap: () => _showCancellationReview(context),
                     ),
-                  ],
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _ActionButton(
-                          label: 'Reject',
-                          color: AppColors.surface,
-                          textColor: AppColors.creamMuted,
-                          bordered: true,
-                          loading: false,
-                          onTap: _rejectCancellation,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        flex: 2,
-                        child: _ActionButton(
-                          label: 'Confirm Refund',
-                          color: const Color(0xFFFF5252),
-                          textColor: Colors.white,
-                          loading: _updating,
-                          onTap: _confirmRefund,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
             ),
           ],
 

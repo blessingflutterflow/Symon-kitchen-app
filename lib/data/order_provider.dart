@@ -17,18 +17,54 @@ const orderStatuses = [
   'delivered',
 ];
 
+class OrderLineExtra {
+  final String name;
+  final double price;
+  const OrderLineExtra({required this.name, required this.price});
+
+  Map<String, dynamic> toMap() => {'name': name, 'price': price};
+
+  factory OrderLineExtra.fromMap(Map<String, dynamic> map) => OrderLineExtra(
+        name: map['name'] as String? ?? '',
+        price: (map['price'] as num?)?.toDouble() ?? 0,
+      );
+}
+
 class OrderLineItem {
   final String name;
   final double price;
   final int quantity;
-  const OrderLineItem({required this.name, required this.price, required this.quantity});
+  final String? variantLabel;
+  final List<String> sides;
+  final List<OrderLineExtra> extras;
 
-  Map<String, dynamic> toMap() => {'name': name, 'price': price, 'quantity': quantity};
+  const OrderLineItem({
+    required this.name,
+    required this.price,
+    required this.quantity,
+    this.variantLabel,
+    this.sides = const [],
+    this.extras = const [],
+  });
+
+  Map<String, dynamic> toMap() => {
+        'name': name,
+        'price': price,
+        'quantity': quantity,
+        if (variantLabel != null) 'variantLabel': variantLabel,
+        if (sides.isNotEmpty) 'sides': sides,
+        if (extras.isNotEmpty) 'extras': extras.map((e) => e.toMap()).toList(),
+      };
 
   factory OrderLineItem.fromMap(Map<String, dynamic> map) => OrderLineItem(
         name: map['name'] as String,
         price: (map['price'] as num).toDouble(),
         quantity: map['quantity'] as int,
+        variantLabel: map['variantLabel'] as String?,
+        sides: (map['sides'] as List<dynamic>? ?? const []).map((s) => s as String).toList(),
+        extras: (map['extras'] as List<dynamic>? ?? const [])
+            .map((e) => OrderLineExtra.fromMap(Map<String, dynamic>.from(e as Map)))
+            .toList(),
       );
 }
 
@@ -49,7 +85,8 @@ class FoodOrder {
   final String? driverId;
   final String? customerName;
   final String? cancellationReason;
-  final String? yocoCheckoutId;
+  final String? previousStatus;
+  final String? paymentReference;
 
   const FoodOrder({
     required this.id,
@@ -68,7 +105,8 @@ class FoodOrder {
     this.driverId,
     this.customerName,
     this.cancellationReason,
-    this.yocoCheckoutId,
+    this.previousStatus,
+    this.paymentReference,
   });
 
   int get statusIndex {
@@ -99,7 +137,8 @@ class FoodOrder {
       driverId: data['driverId'] as String?,
       customerName: data['customerName'] as String?,
       cancellationReason: data['cancellationReason'] as String?,
-      yocoCheckoutId: data['yocoCheckoutId'] as String?,
+      previousStatus: data['previousStatus'] as String?,
+      paymentReference: data['paymentReference'] as String?,
     );
   }
 }
@@ -147,7 +186,7 @@ class OrderService {
       'deliveryFee': deliveryFee,
       'total': total,
       'status': orderStatuses.first,
-      'yocoCheckoutId': null,
+      'paymentReference': null,
       'deliveryAddress': deliveryAddress,
       'deliveryLat': ?deliveryLat,
       'deliveryLng': ?deliveryLng,

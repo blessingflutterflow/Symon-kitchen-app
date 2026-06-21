@@ -253,42 +253,88 @@ class RestaurantPortalPlaceholderScreen extends ConsumerWidget {
             child: _RestaurantCard(restaurant: restaurant),
           ),
         ),
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          sliver: SliverList.list(
-            children: [
-              _PortalAction(
-                icon: Icons.receipt_long_rounded,
-                title: 'View Orders',
-                subtitle: 'See and manage incoming orders in real time',
-                onTap: () => context.push(AppRoutes.restaurantOrders, extra: restaurant.id),
-              ),
-              const SizedBox(height: 12),
-              _PortalAction(
-                icon: Icons.restaurant_menu_rounded,
-                title: 'Manage Menu',
-                subtitle: 'Add, edit and remove dishes from your menu',
-                onTap: () => context.push(AppRoutes.restaurantMenu, extra: restaurant),
-              ),
-              const SizedBox(height: 12),
-              _PortalAction(
-                icon: Icons.edit_outlined,
-                title: 'Edit Restaurant Details',
-                subtitle: 'Update your name, address, photo and delivery info',
-                onTap: () => context.push(AppRoutes.restaurantOnboarding, extra: restaurant),
-              ),
-              const SizedBox(height: 12),
-              _PortalAction(
-                icon: restaurant.isOpen ? Icons.toggle_on_rounded : Icons.toggle_off_outlined,
-                title: restaurant.isOpen ? 'Restaurant is Open' : 'Restaurant is Closed',
-                subtitle: 'Tap to ${restaurant.isOpen ? 'close' : 'open'} for new orders',
-                onTap: () => RestaurantService.setOpen(restaurant.id, !restaurant.isOpen),
-              ),
-              const SizedBox(height: 32),
-            ],
+        // Portal actions are locked until an admin approves the restaurant.
+        if (restaurant.status == 'active')
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            sliver: SliverList.list(
+              children: [
+                _PortalAction(
+                  icon: Icons.receipt_long_rounded,
+                  title: 'View Orders',
+                  subtitle: 'See and manage incoming orders in real time',
+                  onTap: () => context.push(AppRoutes.restaurantOrders, extra: restaurant.id),
+                ),
+                const SizedBox(height: 12),
+                _PortalAction(
+                  icon: Icons.restaurant_menu_rounded,
+                  title: 'Manage Menu',
+                  subtitle: 'Add, edit and remove dishes from your menu',
+                  onTap: () => context.push(AppRoutes.restaurantMenu, extra: restaurant),
+                ),
+                const SizedBox(height: 12),
+                _PortalAction(
+                  icon: Icons.edit_outlined,
+                  title: 'Edit Restaurant Details',
+                  subtitle: 'Update your name, address, photo and delivery info',
+                  onTap: () => context.push(AppRoutes.restaurantOnboarding, extra: restaurant),
+                ),
+                const SizedBox(height: 12),
+                _PortalAction(
+                  icon: restaurant.isOpen ? Icons.toggle_on_rounded : Icons.toggle_off_outlined,
+                  title: restaurant.isOpen ? 'Restaurant is Open' : 'Restaurant is Closed',
+                  subtitle: 'Tap to ${restaurant.isOpen ? 'close' : 'open'} for new orders',
+                  onTap: () => RestaurantService.setOpen(restaurant.id, !restaurant.isOpen),
+                ),
+                const SizedBox(height: 32),
+              ],
+            ),
+          )
+        else
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
+              child: _LockedNote(),
+            ),
           ),
-        ),
       ],
+    );
+  }
+}
+
+/// Shown in place of the portal actions while the restaurant isn't approved —
+/// the owner can't manage anything until an admin approves it.
+class _LockedNote extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Column(
+        children: [
+          const Icon(Icons.lock_outline_rounded, color: AppColors.creamMuted, size: 28),
+          const SizedBox(height: 12),
+          Text(
+            'Management is locked',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(
+                color: AppColors.cream, fontSize: 15, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'You\'ll be able to manage your menu and orders once an admin '
+            'approves your restaurant. We\'ll notify you as soon as that happens.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(
+                color: AppColors.creamMuted, fontSize: 12.5, height: 1.5),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -309,9 +355,9 @@ class _StatusBanner extends StatelessWidget {
     final message = suspended
         ? 'Your restaurant has been suspended and is hidden from customers. '
           'Contact support for more information.'
-        : 'Your restaurant is awaiting admin approval. It will become '
-          'visible to customers once approved — you can set up your menu '
-          'and details in the meantime.';
+        : 'Your restaurant is awaiting admin approval. Once approved, it '
+          'becomes visible to customers and you can manage your menu and '
+          'orders. We\'ll notify you as soon as it\'s approved.';
 
     return Container(
       padding: const EdgeInsets.all(14),

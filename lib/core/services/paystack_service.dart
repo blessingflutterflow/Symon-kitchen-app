@@ -1,20 +1,16 @@
 import 'package:cloud_functions/cloud_functions.dart';
 
-/// Handles Yoco payment integration via Firebase Cloud Functions.
-class YocoService {
-  YocoService._();
+/// Handles Paystack payment integration via Firebase Cloud Functions.
+/// Replaces the previous Yoco integration — Symon's Kitchen now runs fully
+/// on Paystack for customer payments, refunds, and driver payouts.
+class PaystackService {
+  PaystackService._();
 
   static final _functions = FirebaseFunctions.instanceFor(region: 'africa-south1');
 
-  /// Calls the `initializePayment` Cloud Function to create a Yoco checkout
-  /// session and a pending order in Firestore.
-  ///
-  /// Returns:
-  /// - `authorizationUrl` — the Yoco hosted checkout page URL
-  /// - `checkoutId` — the Yoco checkout ID for later verification
-  /// - `orderId` — the Firestore pending order ID
-  /// - `reference` — the payment reference string
-  static Future<YocoCheckoutResult> initializePayment({
+  /// Calls `initializePayment` to create a Paystack transaction + a pending
+  /// order in Firestore. Returns the hosted checkout URL and our reference.
+  static Future<PaystackInitResult> initializePayment({
     required String restaurantId,
     required String restaurantName,
     required double amountRands,
@@ -24,9 +20,9 @@ class YocoService {
     double? deliveryLat,
     double? deliveryLng,
     String? customerName,
+    String? successBaseUrl,
   }) async {
-    final callable = _functions.httpsCallable('initializePayment');
-    final response = await callable.call({
+    final response = await _functions.httpsCallable('initializePayment').call({
       'restaurantId': restaurantId,
       'restaurantName': restaurantName,
       'amountRands': amountRands,
@@ -36,30 +32,27 @@ class YocoService {
       if (deliveryLat != null) 'deliveryLat': deliveryLat,
       if (deliveryLng != null) 'deliveryLng': deliveryLng,
       if (customerName != null) 'customerName': customerName,
+      if (successBaseUrl != null) 'successBaseUrl': successBaseUrl,
     });
-
-    final data = response.data as Map<String, dynamic>;
-    return YocoCheckoutResult(
+    final data = Map<String, dynamic>.from(response.data as Map);
+    return PaystackInitResult(
       authorizationUrl: data['authorizationUrl'] as String,
-      checkoutId: data['checkoutId'] as String,
-      orderId: data['orderId'] as String,
       reference: data['reference'] as String,
+      orderId: data['orderId'] as String,
     );
   }
 
-  /// Calls the `verifyPayment` Cloud Function to confirm a Yoco checkout
-  /// was paid, then promotes the pending order to `placed`.
+  /// Calls `verifyPayment` to confirm a Paystack transaction succeeded, then
+  /// promotes the pending order to `placed`.
   static Future<VerifyResult> verifyPayment({
     required String orderId,
-    required String checkoutId,
+    String? reference,
   }) async {
-    final callable = _functions.httpsCallable('verifyPayment');
-    final response = await callable.call({
+    final response = await _functions.httpsCallable('verifyPayment').call({
       'orderId': orderId,
-      'checkoutId': checkoutId,
+      if (reference != null && reference.isNotEmpty) 'reference': reference,
     });
-
-    final data = response.data as Map<String, dynamic>;
+    final data = Map<String, dynamic>.from(response.data as Map);
     return VerifyResult(
       status: data['status'] as String,
       orderId: data['orderId'] as String,
@@ -67,17 +60,15 @@ class YocoService {
   }
 }
 
-class YocoCheckoutResult {
+class PaystackInitResult {
   final String authorizationUrl;
-  final String checkoutId;
-  final String orderId;
   final String reference;
+  final String orderId;
 
-  const YocoCheckoutResult({
+  const PaystackInitResult({
     required this.authorizationUrl,
-    required this.checkoutId,
-    required this.orderId,
     required this.reference,
+    required this.orderId,
   });
 }
 

@@ -44,6 +44,29 @@ class _MenuItemFormScreenState extends State<MenuItemFormScreen> {
           .toList()
       : [_VariantEntry.empty()];
 
+  // Free "choose N sides" selection
+  late bool _offerSides = (widget.existing?.sidesAllowed ?? 0) > 0;
+  late final TextEditingController _sidesAllowedCtrl = TextEditingController(
+    text: (widget.existing != null && widget.existing!.sidesAllowed > 0)
+        ? widget.existing!.sidesAllowed.toString()
+        : '2',
+  );
+  late final List<TextEditingController> _sideOptions =
+      (widget.existing?.sideOptions.isNotEmpty ?? false)
+          ? widget.existing!.sideOptions.map((s) => TextEditingController(text: s)).toList()
+          : [TextEditingController()];
+
+  // Priced additional extras
+  late final List<_ExtraEntry> _extras =
+      (widget.existing?.extras.isNotEmpty ?? false)
+          ? widget.existing!.extras
+              .map((e) => _ExtraEntry(
+                    name: TextEditingController(text: e.name),
+                    price: TextEditingController(text: _stripTrailingZeros(e.price)),
+                  ))
+              .toList()
+          : [];
+
   Uint8List? _pickedImageBytes;
   String? _existingImageUrl;
 
@@ -135,6 +158,21 @@ class _MenuItemFormScreenState extends State<MenuItemFormScreen> {
               .toList()
           : <MenuItemVariant>[];
 
+      final sideOptions = _offerSides
+          ? _sideOptions.map((c) => c.text.trim()).where((s) => s.isNotEmpty).toList()
+          : <String>[];
+      final sidesAllowed = sideOptions.isEmpty
+          ? 0
+          : (int.tryParse(_sidesAllowedCtrl.text.trim()) ?? 1).clamp(1, sideOptions.length);
+
+      final extras = _extras
+          .where((e) => e.name.text.trim().isNotEmpty && e.price.text.trim().isNotEmpty)
+          .map((e) => MenuItemExtra(
+                name: e.name.text.trim(),
+                price: double.tryParse(e.price.text.trim()) ?? 0,
+              ))
+          .toList();
+
       final now = DateTime.now();
       final item = MenuItemModel(
         id: widget.existing?.id ?? '',
@@ -146,6 +184,9 @@ class _MenuItemFormScreenState extends State<MenuItemFormScreen> {
         isAvailable: _isAvailable,
         imageUrl: imageUrl,
         variants: variants,
+        sideOptions: sideOptions,
+        sidesAllowed: sidesAllowed,
+        extras: extras,
         createdAt: widget.existing?.createdAt ?? now,
         updatedAt: now,
       );
@@ -173,6 +214,14 @@ class _MenuItemFormScreenState extends State<MenuItemFormScreen> {
     for (final v in _variants) {
       v.label.dispose();
       v.price.dispose();
+    }
+    _sidesAllowedCtrl.dispose();
+    for (final c in _sideOptions) {
+      c.dispose();
+    }
+    for (final e in _extras) {
+      e.name.dispose();
+      e.price.dispose();
     }
     super.dispose();
   }
@@ -222,6 +271,10 @@ class _MenuItemFormScreenState extends State<MenuItemFormScreen> {
                 )
               else
                 _buildVariantRows(),
+              const SizedBox(height: 20),
+              _buildSidesSection(),
+              const SizedBox(height: 20),
+              _buildExtrasSection(),
               const SizedBox(height: 20),
               _buildAvailabilityToggle(),
               const SizedBox(height: 28),
@@ -385,6 +438,153 @@ class _MenuItemFormScreenState extends State<MenuItemFormScreen> {
     );
   }
 
+  Widget _buildSidesSection() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(14)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Free side choices', style: GoogleFonts.inter(color: AppColors.cream, fontSize: 14, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 2),
+                    Text('e.g. served with a choice of any 2 sides (no extra charge)',
+                        style: GoogleFonts.inter(color: AppColors.creamMuted, fontSize: 11.5, height: 1.4)),
+                  ],
+                ),
+              ),
+              Switch.adaptive(
+                value: _offerSides,
+                onChanged: (v) => setState(() {
+                  _offerSides = v;
+                  if (v && _sideOptions.isEmpty) _sideOptions.add(TextEditingController());
+                }),
+                activeThumbColor: AppColors.background,
+                activeTrackColor: AppColors.gold,
+                inactiveThumbColor: AppColors.creamMuted,
+                inactiveTrackColor: AppColors.surfaceLight,
+              ),
+            ],
+          ),
+          if (_offerSides) ...[
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Text('Customer picks', style: GoogleFonts.inter(color: AppColors.creamMuted, fontSize: 13)),
+                const SizedBox(width: 10),
+                SizedBox(
+                  width: 56,
+                  child: _PlainField(
+                    hint: '2',
+                    controller: _sidesAllowedCtrl,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text('free side(s)', style: GoogleFonts.inter(color: AppColors.creamMuted, fontSize: 13)),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Text('Side options', style: GoogleFonts.inter(color: AppColors.creamMuted, fontSize: 12, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            ..._sideOptions.asMap().entries.map((e) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Row(
+                    children: [
+                      Expanded(child: _PlainField(hint: 'e.g. Chakalaka', controller: e.value)),
+                      if (_sideOptions.length > 1) ...[
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: () => setState(() => _sideOptions.removeAt(e.key)),
+                          child: const Icon(Icons.close_rounded, color: AppColors.creamMuted, size: 20),
+                        ),
+                      ],
+                    ],
+                  ),
+                )),
+            GestureDetector(
+              onTap: () => setState(() => _sideOptions.add(TextEditingController())),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.add_rounded, color: AppColors.gold, size: 18),
+                    const SizedBox(width: 6),
+                    Text('Add side option', style: GoogleFonts.inter(color: AppColors.gold, fontSize: 13, fontWeight: FontWeight.w700)),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildExtrasSection() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(14)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Additional extras (with prices)', style: GoogleFonts.inter(color: AppColors.cream, fontSize: 14, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 2),
+          Text('Optional paid add-ons, e.g. Beans +R30, Atchar +R25',
+              style: GoogleFonts.inter(color: AppColors.creamMuted, fontSize: 11.5, height: 1.4)),
+          const SizedBox(height: 12),
+          ..._extras.asMap().entries.map((e) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: _PlainField(hint: 'Extra (e.g. Beans)', controller: e.value.name),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 2,
+                      child: _PlainField(
+                        hint: 'Price (R)',
+                        controller: e.value.price,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}'))],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: () => setState(() => _extras.removeAt(e.key)),
+                      child: const Icon(Icons.close_rounded, color: AppColors.creamMuted, size: 20),
+                    ),
+                  ],
+                ),
+              )),
+          GestureDetector(
+            onTap: () => setState(() => _extras.add(_ExtraEntry.empty())),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.add_rounded, color: AppColors.gold, size: 18),
+                  const SizedBox(width: 6),
+                  Text('Add extra', style: GoogleFonts.inter(color: AppColors.gold, fontSize: 13, fontWeight: FontWeight.w700)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildAvailabilityToggle() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -421,6 +621,13 @@ class _VariantEntry {
   final TextEditingController price;
   _VariantEntry({required this.label, required this.price});
   factory _VariantEntry.empty() => _VariantEntry(label: TextEditingController(), price: TextEditingController());
+}
+
+class _ExtraEntry {
+  final TextEditingController name;
+  final TextEditingController price;
+  _ExtraEntry({required this.name, required this.price});
+  factory _ExtraEntry.empty() => _ExtraEntry(name: TextEditingController(), price: TextEditingController());
 }
 
 class _VariantRow extends StatelessWidget {

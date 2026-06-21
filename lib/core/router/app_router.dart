@@ -20,6 +20,7 @@ import '../../screens/restaurant_screen.dart';
 import '../../screens/role_screen.dart';
 import '../../screens/setup_screen.dart';
 import '../../screens/splash_screen.dart';
+import '../../screens/payment_success_screen.dart';
 import '../../screens/tracking_screen.dart';
 import '../constants/app_routes.dart';
 
@@ -109,6 +110,15 @@ final GoRouter appRouter = GoRouter(
       path: AppRoutes.tracking,
       builder: (context, state) =>
           TrackingScreen(orderId: state.extra as String),
+    ),
+    GoRoute(
+      path: AppRoutes.paymentSuccess,
+      builder: (context, state) => PaymentSuccessScreen(
+        reference: state.uri.queryParameters['reference'] ??
+            state.uri.queryParameters['trxref'] ??
+            '',
+        orderId: state.uri.queryParameters['orderId'] ?? '',
+      ),
     ),
   ],
 );

@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'auth_provider.dart';
@@ -33,6 +34,10 @@ class DriverModel {
   final DriverStatus status;
   final String? rejectionReason;
   final bool isOnline;
+  final String? bankName;
+  final String? bankCode;
+  final String? bankAccountNumber;
+  final String? paystackRecipientCode;
 
   const DriverModel({
     required this.uid,
@@ -46,7 +51,13 @@ class DriverModel {
     required this.status,
     this.rejectionReason,
     this.isOnline = false,
+    this.bankName,
+    this.bankCode,
+    this.bankAccountNumber,
+    this.paystackRecipientCode,
   });
+
+  bool get hasBankAccount => paystackRecipientCode != null && paystackRecipientCode!.isNotEmpty;
 
   factory DriverModel.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final d = doc.data() ?? {};
@@ -62,6 +73,10 @@ class DriverModel {
       status: _statusFromString(d['status'] as String?),
       rejectionReason: d['rejectionReason'] as String?,
       isOnline: d['isOnline'] as bool? ?? false,
+      bankName: d['bankName'] as String?,
+      bankCode: d['bankCode'] as String?,
+      bankAccountNumber: d['bankAccountNumber'] as String?,
+      paystackRecipientCode: d['paystackRecipientCode'] as String?,
     );
   }
 }
@@ -77,6 +92,55 @@ final myDriverProfileProvider = StreamProvider<DriverModel?>((ref) {
       .doc(uid)
       .snapshots()
       .map((doc) => doc.exists ? DriverModel.fromDoc(doc) : null);
+});
+
+/// A single automatic payout sent to the driver after a completed delivery.
+class DriverPayout {
+  final String id;
+  final double amountRands;
+  final String status; // success | pending | failed | recipient_missing
+  final String? orderId;
+  final DateTime? createdAt;
+
+  const DriverPayout({
+    required this.id,
+    required this.amountRands,
+    required this.status,
+    this.orderId,
+    this.createdAt,
+  });
+
+  factory DriverPayout.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final d = doc.data() ?? {};
+    return DriverPayout(
+      id: doc.id,
+      amountRands: (d['amountRands'] as num?)?.toDouble() ?? 0,
+      status: d['status'] as String? ?? 'pending',
+      orderId: d['orderId'] as String?,
+      createdAt: (d['createdAt'] as Timestamp?)?.toDate(),
+    );
+  }
+}
+
+/// Streams the signed-in driver's payout history, most recent first.
+final myPayoutsProvider = StreamProvider<List<DriverPayout>>((ref) {
+  final uid = ref.watch(currentUidProvider);
+  if (uid == null) return Stream.value(const []);
+  return _db
+      .collection('payouts')
+      .where('driverId', isEqualTo: uid)
+      .snapshots()
+      .map((snap) {
+        final list = snap.docs.map(DriverPayout.fromDoc).toList();
+        list.sort((a, b) {
+          final at = a.createdAt, bt = b.createdAt;
+          if (at == null && bt == null) return 0;
+          if (at == null) return 1;
+          if (bt == null) return -1;
+          return bt.compareTo(at);
+        });
+        return list;
+      });
 });
 
 class DriverService {
@@ -124,6 +188,38 @@ class DriverService {
       'status': _statusToString(DriverStatus.pendingReview),
       'rejectionReason': FieldValue.delete(),
       'reappliedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  static final _functions = FirebaseFunctions.instanceFor(region: 'africa-south1');
+
+  /// Validates a bank account with Paystack and returns the registered
+  /// account-holder name. Throws if the account can't be resolved.
+  static Future<String> resolveBankAccount({
+    required String accountNumber,
+    required String bankCode,
+  }) async {
+    final result = await _functions.httpsCallable('resolveBankAccount').call({
+      'accountNumber': accountNumber,
+      'bankCode': bankCode,
+    });
+    final data = Map<String, dynamic>.from(result.data as Map);
+    return data['accountName'] as String;
+  }
+
+  /// Registers the driver's (already-validated) bank account with Paystack and
+  /// stores the recipient code, used for automatic per-delivery payouts.
+  static Future<void> registerBankAccount({
+    required String accountNumber,
+    required String bankCode,
+    required String bankName,
+    required String accountName,
+  }) async {
+    await _functions.httpsCallable('registerPaystackRecipient').call({
+      'accountNumber': accountNumber,
+      'bankCode': bankCode,
+      'bankName': bankName,
+      'accountName': accountName,
     });
   }
 

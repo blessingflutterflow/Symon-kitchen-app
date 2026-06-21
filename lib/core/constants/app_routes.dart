@@ -20,4 +20,5 @@ class AppRoutes {
   static const String restaurant = '/restaurant';
   static const String cart = '/cart';
   static const String tracking = '/tracking';
+  static const String paymentSuccess = '/payment/success';
 }

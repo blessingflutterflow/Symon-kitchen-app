@@ -1,7 +1,9 @@
 import 'dart:math';
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -57,6 +59,37 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen>
   _LatLngTween? _markerTween;
   LatLng? _animatedDriverPos;
   LatLng? _lastDriverPos;
+
+  // Custom top-down delivery-scooter marker, rotated by the driver's bearing.
+  BitmapDescriptor? _driverIcon;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDriverIcon();
+  }
+
+  Future<void> _loadDriverIcon() async {
+    try {
+      final data = await rootBundle.load('assets/images/driver_marker.png');
+      // Decode at high res for crispness…
+      final codec = await ui.instantiateImageCodec(
+        data.buffer.asUint8List(),
+        targetWidth: 132,
+      );
+      final frame = await codec.getNextFrame();
+      final bytes = await frame.image.toByteData(format: ui.ImageByteFormat.png);
+      if (bytes == null || !mounted) return;
+      // …but render the marker at a fixed on-screen size (logical dp), so it
+      // looks the same on every device. Tweak `width` to resize.
+      setState(() => _driverIcon = BitmapDescriptor.bytes(
+            bytes.buffer.asUint8List(),
+            width: 38,
+          ));
+    } catch (_) {
+      // Falls back to the default marker if the asset can't load.
+    }
+  }
 
   @override
   void dispose() {
@@ -589,7 +622,8 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen>
         rotation: loc.bearing,
         anchor: const Offset(0.5, 0.5),
         flat: true,
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+        icon: _driverIcon ??
+            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
         infoWindow: InfoWindow(title: loc.driverName),
       ));
     }
@@ -612,7 +646,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen>
           polylineId: const PolylineId('route'),
           points: _route!.points,
           color: AppColors.gold,
-          width: 4,
+          width: 6,
         ),
     };
 

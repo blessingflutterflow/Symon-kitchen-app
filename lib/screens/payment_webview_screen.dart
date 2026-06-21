@@ -3,16 +3,16 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../core/theme.dart';
 
-/// Loads the Yoco hosted checkout page in a WebView and detects
+/// Loads the Paystack hosted checkout page in a WebView and detects
 /// success / cancel / failure redirects.
 class PaymentWebViewScreen extends StatefulWidget {
   final String authorizationUrl;
-  final String checkoutId;
+  final String reference;
 
   const PaymentWebViewScreen({
     super.key,
     required this.authorizationUrl,
-    required this.checkoutId,
+    required this.reference,
   });
 
   @override

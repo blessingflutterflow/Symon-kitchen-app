@@ -1,11 +1,13 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../core/services/open_url.dart';
 import '../core/constants/app_routes.dart';
 import '../core/services/places_service.dart';
-import '../core/services/yoco_service.dart';
+import '../core/services/paystack_service.dart';
 import '../core/theme.dart';
 import '../data/auth_provider.dart';
 import '../data/cart_item.dart';
@@ -107,6 +109,7 @@ class CartScreen extends ConsumerWidget {
 
   Widget _buildItemList(BuildContext context, WidgetRef ref, List<CartItem> cart) {
     final notifier = ref.read(cartProvider.notifier);
+    final commission = ref.watch(commissionProvider).valueOrNull ?? 0.0;
     return ListView.separated(
       padding: const EdgeInsets.all(20),
       itemCount: cart.length,
@@ -150,16 +153,34 @@ class CartScreen extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      item.item.name,
+                      item.variantLabel != null
+                          ? '${item.item.name} (${item.variantLabel})'
+                          : item.item.name,
                       style: GoogleFonts.inter(
                         color: AppColors.cream,
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
+                    if (item.sides.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'Sides: ${item.sides.join(', ')}',
+                        style: GoogleFonts.inter(
+                            color: AppColors.creamMuted, fontSize: 11.5),
+                      ),
+                    ],
+                    if (item.extras.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'Extras: ${item.extras.map((e) => e.name).join(', ')}',
+                        style: GoogleFonts.inter(
+                            color: AppColors.creamMuted, fontSize: 11.5),
+                      ),
+                    ],
                     const SizedBox(height: 4),
                     Text(
-                      'R ${item.item.price.toStringAsFixed(2)}',
+                      'R ${applyCommission(item.unitPrice, commission).toStringAsFixed(2)}',
                       style: GoogleFonts.inter(
                         color: AppColors.creamMuted,
                         fontSize: 13,
@@ -174,7 +195,7 @@ class CartScreen extends ConsumerWidget {
                   _QtyButton(
                     icon: Icons.remove_rounded,
                     onTap: () =>
-                        notifier.updateQuantity(item.item, item.quantity - 1),
+                        notifier.updateQuantityAt(index, item.quantity - 1),
                   ),
                   const SizedBox(width: 10),
                   Text(
@@ -189,7 +210,7 @@ class CartScreen extends ConsumerWidget {
                   _QtyButton(
                     icon: Icons.add_rounded,
                     onTap: () =>
-                        notifier.updateQuantity(item.item, item.quantity + 1),
+                        notifier.updateQuantityAt(index, item.quantity + 1),
                   ),
                 ],
               ),
@@ -349,38 +370,59 @@ class _PlaceOrderButtonState extends ConsumerState<_PlaceOrderButton> {
       }
 
       final deliveryFee = ref.read(deliveryFeeProvider).valueOrNull ?? kDefaultDeliveryFee;
+      final commission = ref.read(commissionProvider).valueOrNull ?? 0.0;
 
-      // 1. Create Yoco checkout + pending order
-      final checkoutResult = await YocoService.initializePayment(
+      // 1. Create Paystack transaction + pending order. Item prices carry the
+      // commission markup so the stored order matches what the customer paid.
+      final checkoutResult = await PaystackService.initializePayment(
         restaurantId: restaurant.id,
         restaurantName: '${restaurant.name} ${restaurant.branch}',
         amountRands: widget.total,
         items: cart.items.map((c) => {
           'name': c.item.name,
           'quantity': c.quantity,
-          'price': c.item.price,
+          'price': applyCommission(c.unitPrice, commission),
+          if (c.variantLabel != null) 'variantLabel': c.variantLabel,
+          if (c.sides.isNotEmpty) 'sides': c.sides,
+          if (c.extras.isNotEmpty)
+            'extras': c.extras
+                .map((e) => {'name': e.name, 'price': applyCommission(e.price, commission)})
+                .toList(),
         }).toList(),
         deliveryAddress: address,
         deliveryFee: deliveryFee,
         deliveryLat: lat,
         deliveryLng: lng,
         customerName: profile?.name,
+        successBaseUrl: kIsWeb
+            ? '${getWebOrigin()}/#/payment/success'
+            : null,
       );
 
-      // 2. Open Yoco hosted checkout in WebView
+      // 2. Open Paystack hosted checkout — WebView on mobile, redirect on web
       if (!mounted) return;
-      final result = await Navigator.of(context).push<PaymentResult>(
-        MaterialPageRoute(
-          builder: (_) => PaymentWebViewScreen(
-            authorizationUrl: checkoutResult.authorizationUrl,
-            checkoutId: checkoutResult.checkoutId,
+      bool paymentCompleted = false;
+
+      if (kIsWeb) {
+        // On web: navigate the current tab to Paystack. It redirects back to
+        // /#/payment/success?orderId=...&reference=... → PaymentSuccessScreen.
+        navigateToUrl(checkoutResult.authorizationUrl);
+        return; // Control passes to PaymentSuccessScreen after redirect
+      } else {
+        final result = await Navigator.of(context).push<PaymentResult>(
+          MaterialPageRoute(
+            builder: (_) => PaymentWebViewScreen(
+              authorizationUrl: checkoutResult.authorizationUrl,
+              reference: checkoutResult.reference,
+            ),
           ),
-        ),
-      );
+        );
+        paymentCompleted = result != null && !result.isCancelled;
+      }
 
       if (!mounted) return;
 
-      if (result == null || result.isCancelled) {
+      if (!paymentCompleted) {
         setState(() => _placing = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Payment was cancelled.')),
@@ -389,9 +431,9 @@ class _PlaceOrderButtonState extends ConsumerState<_PlaceOrderButton> {
       }
 
       // 3. Verify payment with Cloud Function
-      final verifyResult = await YocoService.verifyPayment(
+      final verifyResult = await PaystackService.verifyPayment(
         orderId: checkoutResult.orderId,
-        checkoutId: checkoutResult.checkoutId,
+        reference: checkoutResult.reference,
       );
 
       if (!mounted) return;

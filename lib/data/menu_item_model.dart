@@ -18,6 +18,21 @@ class MenuItemVariant {
       );
 }
 
+/// A priced add-on for a menu item, e.g. "Beans +R30", "Atchar +R25".
+class MenuItemExtra {
+  final String name;
+  final double price;
+
+  const MenuItemExtra({required this.name, required this.price});
+
+  Map<String, dynamic> toMap() => {'name': name, 'price': price};
+
+  factory MenuItemExtra.fromMap(Map<String, dynamic> m) => MenuItemExtra(
+        name: m['name'] as String? ?? '',
+        price: (m['price'] as num?)?.toDouble() ?? 0.0,
+      );
+}
+
 class MenuItemModel {
   final String id;
   final String restaurantId;
@@ -28,6 +43,11 @@ class MenuItemModel {
   final bool isAvailable;
   final String? imageUrl;
   final List<MenuItemVariant> variants;
+  // Free "choose N sides" selection (e.g. choose any 2 of Chomolia/Cabbage/…).
+  final List<String> sideOptions;
+  final int sidesAllowed; // how many free sides the customer must pick; 0 = none
+  // Priced add-ons the customer can optionally add.
+  final List<MenuItemExtra> extras;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -43,9 +63,14 @@ class MenuItemModel {
     required this.updatedAt,
     this.imageUrl,
     this.variants = const [],
+    this.sideOptions = const [],
+    this.sidesAllowed = 0,
+    this.extras = const [],
   });
 
   bool get hasVariants => variants.isNotEmpty;
+  bool get hasSides => sidesAllowed > 0 && sideOptions.isNotEmpty;
+  bool get hasExtras => extras.isNotEmpty;
 
   factory MenuItemModel.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
     final d = doc.data()!;
@@ -61,6 +86,13 @@ class MenuItemModel {
       variants: (d['variants'] as List<dynamic>? ?? const [])
           .map((v) => MenuItemVariant.fromMap(Map<String, dynamic>.from(v as Map)))
           .toList(),
+      sideOptions: (d['sideOptions'] as List<dynamic>? ?? const [])
+          .map((s) => s as String)
+          .toList(),
+      sidesAllowed: (d['sidesAllowed'] as num?)?.toInt() ?? 0,
+      extras: (d['extras'] as List<dynamic>? ?? const [])
+          .map((e) => MenuItemExtra.fromMap(Map<String, dynamic>.from(e as Map)))
+          .toList(),
       createdAt: (d['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (d['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
@@ -75,6 +107,9 @@ class MenuItemModel {
         'isAvailable': isAvailable,
         'imageUrl': imageUrl,
         'variants': variants.map((v) => v.toMap()).toList(),
+        'sideOptions': sideOptions,
+        'sidesAllowed': sidesAllowed,
+        'extras': extras.map((e) => e.toMap()).toList(),
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       };
@@ -87,6 +122,9 @@ class MenuItemModel {
         'isAvailable': isAvailable,
         'imageUrl': imageUrl,
         'variants': variants.map((v) => v.toMap()).toList(),
+        'sideOptions': sideOptions,
+        'sidesAllowed': sidesAllowed,
+        'extras': extras.map((e) => e.toMap()).toList(),
         'updatedAt': FieldValue.serverTimestamp(),
       };
 }

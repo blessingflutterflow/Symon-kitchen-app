@@ -9,6 +9,7 @@ import '../data/cart_item.dart';
 import '../data/cart_provider.dart';
 import '../data/menu_item_model.dart';
 import '../data/restaurant_model.dart';
+import 'dish_detail_screen.dart';
 
 class RestaurantScreen extends ConsumerStatefulWidget {
   const RestaurantScreen({super.key, required this.restaurant});
@@ -22,6 +23,7 @@ class _RestaurantScreenState extends ConsumerState<RestaurantScreen>
     with SingleTickerProviderStateMixin {
   TabController? _tabController;
   int _categoryCount = -1;
+  String _topGroup = 'Food'; // 'Food' | 'Beverages'
 
   /// (Re)builds the tab controller when the number of categories changes —
   /// the menu streams in live, so the count isn't known up front.
@@ -44,6 +46,17 @@ class _RestaurantScreenState extends ConsumerState<RestaurantScreen>
   /// different restaurant, the customer is asked to confirm starting a new
   /// order — orders can only contain items from one kitchen at a time.
   Future<void> _addToCart(MenuItemModel item) async {
+    // Dishes with sizes, free sides, or paid extras open the detail screen so
+    // the customer can configure them; simple dishes are added directly.
+    if (item.hasVariants || item.hasSides || item.hasExtras) {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => DishDetailScreen(restaurant: widget.restaurant, item: item),
+        ),
+      );
+      return;
+    }
+
     final notifier = ref.read(cartProvider.notifier);
     final cart = ref.read(cartProvider);
 
@@ -108,10 +121,7 @@ class _RestaurantScreenState extends ConsumerState<RestaurantScreen>
                 ),
               ),
               data: (items) {
-                final categories = _groupByCategory(items);
-                _ensureTabController(categories.length);
-
-                if (categories.isEmpty) {
+                if (items.isEmpty) {
                   return Center(
                     child: Text(
                       'This restaurant hasn\'t added any menu items yet.',
@@ -120,20 +130,42 @@ class _RestaurantScreenState extends ConsumerState<RestaurantScreen>
                   );
                 }
 
+                // Top-level split: FOOD vs BEVERAGES.
+                final foodItems =
+                    items.where((i) => i.category != 'Beverages').toList();
+                final bevItems =
+                    items.where((i) => i.category == 'Beverages').toList();
+                final hasFood = foodItems.isNotEmpty;
+                final hasBev = bevItems.isNotEmpty;
+                final showToggle = hasFood && hasBev;
+
+                var group = _topGroup;
+                if (group == 'Beverages' && !hasBev) group = 'Food';
+                if (group == 'Food' && !hasFood && hasBev) group = 'Beverages';
+
+                final groupItems = group == 'Beverages' ? bevItems : foodItems;
+                final categories = _groupByCategory(groupItems);
+                _ensureTabController(categories.length);
+
                 return Column(
                   children: [
-                    _buildTabBar(categories.keys.toList()),
-                    Expanded(
-                      child: TabBarView(
-                        controller: _tabController,
-                        children: categories.values
-                            .map((items) => _buildMenuList(
-                                  items,
-                                  isThisRestaurantsCart ? cart.items : const [],
-                                ))
-                            .toList(),
+                    if (showToggle) _buildGroupToggle(group),
+                    if (categories.isEmpty)
+                      const Expanded(child: SizedBox())
+                    else ...[
+                      _buildTabBar(categories.keys.toList()),
+                      Expanded(
+                        child: TabBarView(
+                          controller: _tabController,
+                          children: categories.values
+                              .map((items) => _buildMenuList(
+                                    items,
+                                    isThisRestaurantsCart ? cart.items : const [],
+                                  ))
+                              .toList(),
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 );
               },
@@ -370,6 +402,56 @@ class _RestaurantScreenState extends ConsumerState<RestaurantScreen>
     );
   }
 
+  Widget _buildGroupToggle(String group) {
+    Widget seg(String label, IconData icon) {
+      final selected = group == label;
+      return Expanded(
+        child: GestureDetector(
+          onTap: () => setState(() => _topGroup = label),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(
+              color: selected ? AppColors.gold : Colors.transparent,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon,
+                    size: 16,
+                    color: selected ? AppColors.background : AppColors.creamMuted),
+                const SizedBox(width: 6),
+                Text(
+                  label.toUpperCase(),
+                  style: GoogleFonts.inter(
+                    color: selected ? AppColors.background : AppColors.creamMuted,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          seg('Food', Icons.restaurant_rounded),
+          seg('Beverages', Icons.local_cafe_rounded),
+        ],
+      ),
+    );
+  }
+
   Widget _buildTabBar(List<String> categories) {
     return Container(
       color: AppColors.surface,
@@ -396,6 +478,8 @@ class _RestaurantScreenState extends ConsumerState<RestaurantScreen>
       return match.isEmpty ? 0 : match.first.quantity;
     }
 
+    final commission = ref.watch(commissionProvider).valueOrNull ?? 0.0;
+
     return ListView.separated(
       padding: const EdgeInsets.symmetric(vertical: 12),
       itemCount: items.length,
@@ -407,6 +491,7 @@ class _RestaurantScreenState extends ConsumerState<RestaurantScreen>
       itemBuilder: (context, index) => _MenuItemTile(
         item: items[index],
         count: itemCount(items[index]),
+        commission: commission,
         onAdd: () => _addToCart(items[index]),
       ),
     );
@@ -480,10 +565,12 @@ class _MenuItemTile extends StatelessWidget {
   const _MenuItemTile({
     required this.item,
     required this.count,
+    required this.commission,
     required this.onAdd,
   });
   final MenuItemModel item;
   final int count;
+  final double commission;
   final VoidCallback onAdd;
 
   @override
@@ -521,9 +608,9 @@ class _MenuItemTile extends StatelessWidget {
                 Text(
                   item.hasVariants
                       ? item.variants
-                          .map((v) => '${v.label} R ${v.price.toStringAsFixed(2)}')
+                          .map((v) => '${v.label} R ${applyCommission(v.price, commission).toStringAsFixed(2)}')
                           .join('  ·  ')
-                      : 'R ${item.price.toStringAsFixed(2)}',
+                      : 'R ${applyCommission(item.price, commission).toStringAsFixed(2)}',
                   style: GoogleFonts.inter(
                     color: AppColors.cream,
                     fontSize: 13,

@@ -43,3 +43,11 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# One-off data seeding helpers (not part of the app)
+product.json
+seed_output.json
+seed_transform.js
+seed_push.js
+seed_images.js
+seed_fix_beverages.js
