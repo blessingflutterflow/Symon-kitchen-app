@@ -9,8 +9,10 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
 import '../core/constants/app_routes.dart';
+import '../core/services/fcm_service.dart';
 import '../core/services/location_service.dart';
 import '../core/services/places_service.dart';
 import '../core/theme.dart';
@@ -31,6 +33,44 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen> {
   bool _togglingOnline = false;
   bool _trackingStarted = false;
   bool _cardCollapsed = false; // tap the handle to minimise the card and see the map
+  bool _ringing = false;
+  bool _ringMuted = false; // driver muted the current batch of requests
+
+  @override
+  void dispose() {
+    if (_ringing && !kIsWeb) FlutterRingtonePlayer().stop();
+    super.dispose();
+  }
+
+  // Rings (looping alarm) while the driver is online with unaccepted delivery
+  // requests waiting — like Uber/inDrive — and stops once they act.
+  void _startRing() {
+    if (_ringing || kIsWeb) return;
+    _ringing = true;
+    FlutterRingtonePlayer().playAlarm(volume: 1.0, looping: true, asAlarm: true);
+  }
+
+  void _stopRing() {
+    if (!_ringing) return;
+    _ringing = false;
+    if (!kIsWeb) FlutterRingtonePlayer().stop();
+  }
+
+  void _updateRing() {
+    // The app is in the foreground here, so the background full-screen call
+    // notification (if any) is redundant — clear it; in-app ringing takes over.
+    FcmService.cancelDeliveryCall();
+    final online = ref.read(myDriverProfileProvider).valueOrNull?.isOnline ?? false;
+    final hasActive = ref.read(myActiveDeliveryProvider).valueOrNull != null;
+    final orders = ref.read(availableOrdersProvider).valueOrNull ?? const <FoodOrder>[];
+    if (orders.isEmpty) _ringMuted = false; // reset mute for the next request
+    final shouldRing = online && !hasActive && orders.isNotEmpty && !_ringMuted;
+    if (shouldRing) {
+      _startRing();
+    } else {
+      _stopRing();
+    }
+  }
 
   Future<void> _toggleOnline(DriverModel driver) async {
     if (_togglingOnline) return;
@@ -67,6 +107,12 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Manage the new-delivery ring whenever orders / active delivery / online
+    // status change.
+    ref.listen(availableOrdersProvider, (_, _) => _updateRing());
+    ref.listen(myActiveDeliveryProvider, (_, _) => _updateRing());
+    ref.listen(myDriverProfileProvider, (_, _) => _updateRing());
+
     final profileAsync = ref.watch(myDriverProfileProvider);
 
     return Scaffold(
@@ -409,13 +455,54 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen> {
             showPulse: true,
           );
         }
-        return ListView.separated(
-          shrinkWrap: true,
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-          itemCount: orders.length,
-          separatorBuilder: (context, i) => const SizedBox(height: 14),
-          itemBuilder: (context, i) =>
-              _IncomingOrderCard(order: orders[i], driverId: driver.uid),
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 6, 12, 2),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      orders.length > 1
+                          ? 'New delivery requests (${orders.length})'
+                          : 'New delivery request',
+                      style: GoogleFonts.inter(
+                        color: AppColors.cream,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () => setState(() {
+                      _ringMuted = !_ringMuted;
+                      _updateRing();
+                    }),
+                    child: Padding(
+                      padding: const EdgeInsets.all(6),
+                      child: Icon(
+                        _ringMuted
+                            ? Icons.volume_off_rounded
+                            : Icons.volume_up_rounded,
+                        color: _ringMuted ? AppColors.creamMuted : AppColors.gold,
+                        size: 22,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Flexible(
+              child: ListView.separated(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+                itemCount: orders.length,
+                separatorBuilder: (context, i) => const SizedBox(height: 14),
+                itemBuilder: (context, i) =>
+                    _IncomingOrderCard(order: orders[i], driverId: driver.uid),
+              ),
+            ),
+          ],
         );
       },
     );
@@ -1037,6 +1124,8 @@ class _ActiveDeliveryCardState extends ConsumerState<_ActiveDeliveryCard> {
     if (_loading) return;
     setState(() => _loading = true);
     await OrderService.confirmDelivery(widget.order.id);
+    // A short chime to confirm the delivery is complete.
+    if (!kIsWeb) FlutterRingtonePlayer().playNotification();
     if (mounted) setState(() => _loading = false);
   }
 

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/router/app_router.dart';
+import 'core/services/call_service.dart';
 import 'core/services/fcm_service.dart';
 import 'core/theme.dart';
 import 'firebase_options.dart';
@@ -13,6 +14,9 @@ void main() async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
   await FcmService.setup();
+  // Listen for Accept/Decline on the ringing incoming-call screen (and handle a
+  // cold start where the app was launched by accepting the call).
+  CallService.init();
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   runApp(const ProviderScope(child: SymonsApp()));
 }

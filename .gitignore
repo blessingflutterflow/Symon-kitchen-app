@@ -51,3 +51,8 @@ seed_transform.js
 seed_push.js
 seed_images.js
 seed_fix_beverages.js
+
+# Android release signing — NEVER commit these
+android/key.properties
+android/upload-keystore.jks
+**/*.jks

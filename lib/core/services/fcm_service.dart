@@ -10,11 +10,28 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/auth_provider.dart';
 import '../constants/app_routes.dart';
 import '../router/app_router.dart';
+import 'call_service.dart';
 
 // ─── Background handler (must be top-level, NOT a class method) ───────────────
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  debugPrint('[FCM] Background message: ${message.notification?.title}');
+  // New-delivery (driver) and new-order (restaurant) alerts arrive as data-only,
+  // high-priority messages so this handler runs even when the app is swiped
+  // away/killed. We ring the phone like an incoming call — continuously, over
+  // the lock screen — until the user accepts or declines.
+  final type = message.data['type'];
+  if (type == 'new_delivery' || type == 'new_order') {
+    await CallService.showIncoming(
+      id: (message.data['orderId'] as String?) ?? message.messageId ?? '${message.hashCode}',
+      title: type == 'new_delivery' ? '🛵 New Delivery!' : '🛎️ New Order!',
+      handle: type == 'new_delivery'
+          ? 'Pickup from ${message.data['restaurantName'] ?? 'a restaurant'}'
+          : 'A customer just placed an order',
+      extra: Map<String, dynamic>.from(message.data),
+    );
+  } else {
+    debugPrint('[FCM] Background message: ${message.notification?.title}');
+  }
 }
 
 /// Calls [FcmService.init] once the signed-in user's role is known, and
@@ -36,6 +53,20 @@ class FcmService {
   static const _channelName = 'Order & Delivery Updates';
   static const _channelDesc = 'Notifications for order status, new orders, and deliveries';
 
+  // Dedicated high-importance channel for the Uber-style new-delivery alert.
+  // NOTE: a channel's sound is locked at creation — bump this id (…_ring, _v2…)
+  // whenever the bundled sound changes, or existing installs keep the old one.
+  static const _deliveryChannelId = 'new_delivery_ring';
+  static const _deliveryChannelName = 'New Delivery Requests';
+  static const _deliveryChannelDesc = 'Loud ringing alerts when a new delivery is available';
+  // Bundled custom ringtone at android/app/src/main/res/raw/delivery_ring.mp3
+  static const _deliverySound = RawResourceAndroidNotificationSound('delivery_ring');
+
+  // Customer "your order is on the way" alert — rings with the same custom sound.
+  static const _onWayChannelId = 'order_on_way_ring';
+  static const _onWayChannelName = 'Order On The Way';
+  static const _onWayChannelDesc = 'Rings when your order is out for delivery';
+
   /// Call once at app startup, before auth. Initialises the local-notification
   /// plugin and creates the Android channel used for foreground notifications.
   static Future<void> setup() async {
@@ -51,15 +82,31 @@ class FcmService {
       onDidReceiveNotificationResponse: _onLocalTap,
     );
 
-    await _localNotifs
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(const AndroidNotificationChannel(
-          _channelId,
-          _channelName,
-          description: _channelDesc,
-          importance: Importance.high,
-          playSound: true,
-        ));
+    final android = _localNotifs
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    await android?.createNotificationChannel(const AndroidNotificationChannel(
+      _channelId,
+      _channelName,
+      description: _channelDesc,
+      importance: Importance.high,
+      playSound: true,
+    ));
+    await android?.createNotificationChannel(const AndroidNotificationChannel(
+      _deliveryChannelId,
+      _deliveryChannelName,
+      description: _deliveryChannelDesc,
+      importance: Importance.max,
+      playSound: true,
+      sound: _deliverySound,
+    ));
+    await android?.createNotificationChannel(const AndroidNotificationChannel(
+      _onWayChannelId,
+      _onWayChannelName,
+      description: _onWayChannelDesc,
+      importance: Importance.high,
+      playSound: true,
+      sound: _deliverySound,
+    ));
   }
 
   /// Call once the signed-in user's [role] is known. Saves the FCM token,
@@ -152,8 +199,27 @@ class FcmService {
 
   // ── Foreground message handler ────────────────────────────────────────────
   static Future<void> _onForegroundMessage(RemoteMessage message) async {
+    // New-delivery alerts are handled in-app by the driver screen's looping
+    // ring (Phase A), so don't also pop a tray notification in the foreground.
+    if (message.data['type'] == 'new_delivery') return;
+
+    // New restaurant orders ring like an incoming call, even in the foreground.
+    if (message.data['type'] == 'new_order') {
+      await CallService.showIncoming(
+        id: (message.data['orderId'] as String?) ?? '${message.hashCode}',
+        title: '🛎️ New Order!',
+        handle: 'A customer just placed an order',
+        extra: Map<String, dynamic>.from(message.data),
+      );
+      return;
+    }
+
     final n = message.notification;
     if (n == null) return;
+
+    // The customer "on the way" alert rings with the custom sound; everything
+    // else uses the normal updates channel.
+    final isOnWay = message.data['status'] == 'out_for_delivery';
 
     await _localNotifs.show(
       id: message.hashCode,
@@ -161,11 +227,12 @@ class FcmService {
       body: n.body,
       notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
-          _channelId,
-          _channelName,
-          channelDescription: _channelDesc,
+          isOnWay ? _onWayChannelId : _channelId,
+          isOnWay ? _onWayChannelName : _channelName,
+          channelDescription: isOnWay ? _onWayChannelDesc : _channelDesc,
           importance: Importance.high,
           priority: Priority.high,
+          sound: isOnWay ? _deliverySound : null,
           icon: '@mipmap/ic_launcher',
         ),
         iOS: const DarwinNotificationDetails(
@@ -177,6 +244,10 @@ class FcmService {
       payload: jsonEncode(message.data),
     );
   }
+
+  /// Ends any ringing incoming-call screen (once the driver is in the app with
+  /// the live order card) so it doesn't keep ringing over the UI.
+  static Future<void> cancelDeliveryCall() => CallService.endAll();
 
   // ── Local notification tap (foreground notification was tapped) ───────────
   static void _onLocalTap(NotificationResponse response) {
