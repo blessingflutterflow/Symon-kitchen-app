@@ -3,7 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../core/theme.dart';
 
-/// Loads the Paystack hosted checkout page in a WebView and detects
+/// Loads the Yoco hosted checkout page in a WebView and detects
 /// success / cancel / failure redirects.
 class PaymentWebViewScreen extends StatefulWidget {
   final String authorizationUrl;

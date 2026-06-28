@@ -4,13 +4,12 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../core/constants/app_routes.dart';
-import '../core/services/paystack_service.dart';
+import '../core/services/yoco_service.dart';
 import '../core/theme.dart';
 import '../data/cart_provider.dart';
 
-/// Handles the Paystack payment redirect on Flutter Web.
-/// Paystack redirects the browser to
-/// /#/payment/success?orderId=xxx&reference=yyy&trxref=yyy
+/// Handles the Yoco payment redirect on Flutter Web.
+/// Yoco redirects the browser to /#/payment/success?orderId=xxx
 /// This screen verifies the payment and routes to the tracking screen.
 class PaymentSuccessScreen extends ConsumerStatefulWidget {
   const PaymentSuccessScreen({
@@ -40,7 +39,7 @@ class _PaymentSuccessScreenState extends ConsumerState<PaymentSuccessScreen> {
       return;
     }
     try {
-      final result = await PaystackService.verifyPayment(
+      final result = await YocoService.verifyPayment(
         orderId: widget.orderId,
         reference: widget.reference,
       );

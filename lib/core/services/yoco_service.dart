@@ -1,16 +1,16 @@
 import 'package:cloud_functions/cloud_functions.dart';
 
-/// Handles Paystack payment integration via Firebase Cloud Functions.
-/// Replaces the previous Yoco integration — Symon's Kitchen now runs fully
-/// on Paystack for customer payments, refunds, and driver payouts.
-class PaystackService {
-  PaystackService._();
+/// Handles Yoco payment integration via Firebase Cloud Functions.
+/// Symon's Kitchin runs on Yoco for customer payments and refunds. (Driver
+/// payouts are settled manually by the business — Yoco has no transfers API.)
+class YocoService {
+  YocoService._();
 
   static final _functions = FirebaseFunctions.instanceFor(region: 'africa-south1');
 
-  /// Calls `initializePayment` to create a Paystack transaction + a pending
-  /// order in Firestore. Returns the hosted checkout URL and our reference.
-  static Future<PaystackInitResult> initializePayment({
+  /// Calls `initializePayment` to create a Yoco checkout + a pending order in
+  /// Firestore. Returns the hosted checkout URL and the checkout id (reference).
+  static Future<YocoInitResult> initializePayment({
     required String restaurantId,
     required String restaurantName,
     required double amountRands,
@@ -35,15 +35,15 @@ class PaystackService {
       if (successBaseUrl != null) 'successBaseUrl': successBaseUrl,
     });
     final data = Map<String, dynamic>.from(response.data as Map);
-    return PaystackInitResult(
+    return YocoInitResult(
       authorizationUrl: data['authorizationUrl'] as String,
       reference: data['reference'] as String,
       orderId: data['orderId'] as String,
     );
   }
 
-  /// Calls `verifyPayment` to confirm a Paystack transaction succeeded, then
-  /// promotes the pending order to `placed`.
+  /// Calls `verifyPayment` to confirm the Yoco checkout completed, then promotes
+  /// the pending order to `placed`.
   static Future<VerifyResult> verifyPayment({
     required String orderId,
     String? reference,
@@ -60,12 +60,12 @@ class PaystackService {
   }
 }
 
-class PaystackInitResult {
+class YocoInitResult {
   final String authorizationUrl;
   final String reference;
   final String orderId;
 
-  const PaystackInitResult({
+  const YocoInitResult({
     required this.authorizationUrl,
     required this.reference,
     required this.orderId,

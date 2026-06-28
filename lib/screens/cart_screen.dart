@@ -7,7 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../core/services/open_url.dart';
 import '../core/constants/app_routes.dart';
 import '../core/services/places_service.dart';
-import '../core/services/paystack_service.dart';
+import '../core/services/yoco_service.dart';
 import '../core/theme.dart';
 import '../data/auth_provider.dart';
 import '../data/cart_item.dart';
@@ -372,9 +372,9 @@ class _PlaceOrderButtonState extends ConsumerState<_PlaceOrderButton> {
       final deliveryFee = ref.read(deliveryFeeProvider).valueOrNull ?? kDefaultDeliveryFee;
       final commission = ref.read(commissionProvider).valueOrNull ?? 0.0;
 
-      // 1. Create Paystack transaction + pending order. Item prices carry the
+      // 1. Create Yoco checkout + pending order. Item prices carry the
       // commission markup so the stored order matches what the customer paid.
-      final checkoutResult = await PaystackService.initializePayment(
+      final checkoutResult = await YocoService.initializePayment(
         restaurantId: restaurant.id,
         restaurantName: '${restaurant.name} ${restaurant.branch}',
         amountRands: widget.total,
@@ -399,13 +399,13 @@ class _PlaceOrderButtonState extends ConsumerState<_PlaceOrderButton> {
             : null,
       );
 
-      // 2. Open Paystack hosted checkout — WebView on mobile, redirect on web
+      // 2. Open Yoco hosted checkout — WebView on mobile, redirect on web
       if (!mounted) return;
       bool paymentCompleted = false;
 
       if (kIsWeb) {
-        // On web: navigate the current tab to Paystack. It redirects back to
-        // /#/payment/success?orderId=...&reference=... → PaymentSuccessScreen.
+        // On web: navigate the current tab to Yoco. It redirects back to
+        // /#/payment/success?orderId=... → PaymentSuccessScreen.
         navigateToUrl(checkoutResult.authorizationUrl);
         return; // Control passes to PaymentSuccessScreen after redirect
       } else {
@@ -431,7 +431,7 @@ class _PlaceOrderButtonState extends ConsumerState<_PlaceOrderButton> {
       }
 
       // 3. Verify payment with Cloud Function
-      final verifyResult = await PaystackService.verifyPayment(
+      final verifyResult = await YocoService.verifyPayment(
         orderId: checkoutResult.orderId,
         reference: checkoutResult.reference,
       );

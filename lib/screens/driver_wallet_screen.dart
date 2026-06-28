@@ -7,7 +7,7 @@ import '../core/widgets/narrow_body.dart';
 import '../data/driver_model.dart';
 import '../data/order_provider.dart';
 
-// South African banks with their Paystack bank codes
+// South African banks (codes kept for reference; payouts are settled manually)
 const _saBanks = [
   {'name': 'ABSA', 'code': '632005'},
   {'name': 'African Bank', 'code': '430000'},
@@ -50,7 +50,7 @@ class DriverWalletScreen extends ConsumerWidget {
                   history.fold<double>(0, (sum, o) => sum + o.deliveryFee);
               final payouts = payoutsAsync.valueOrNull ?? const <DriverPayout>[];
               final paidOut = payouts
-                  .where((p) => p.status == 'success')
+                  .where((p) => p.status == 'paid' || p.status == 'success')
                   .fold<double>(0, (sum, p) => sum + p.amountRands);
               final driver = profileAsync.valueOrNull;
 
@@ -257,8 +257,8 @@ class _PayoutInfoNote extends StatelessWidget {
           Expanded(
             child: Text(
               hasBank
-                  ? 'Your delivery fee is paid automatically to your bank after each completed delivery.'
-                  : 'Add your bank account below to receive automatic payouts after each delivery.',
+                  ? 'Your delivery earnings are paid to this bank account by Symon\'s Kitchin. See your payout history below.'
+                  : 'Add your bank account below so Symon\'s Kitchin can pay out your delivery earnings.',
               style: GoogleFonts.inter(
                   color: AppColors.cream, fontSize: 12, height: 1.4),
             ),
@@ -269,8 +269,8 @@ class _PayoutInfoNote extends StatelessWidget {
   }
 }
 
-// Bank account section — shows existing account or an "Add Bank Account" form
-// with Paystack validation before saving.
+// Bank account section — shows the saved account or an "Add Bank Account" form.
+// Details are stored on the driver doc; the business pays drivers out manually.
 class _BankAccountSection extends StatefulWidget {
   const _BankAccountSection({required this.driver});
   final DriverModel? driver;
@@ -281,49 +281,29 @@ class _BankAccountSection extends StatefulWidget {
 
 class _BankAccountSectionState extends State<_BankAccountSection> {
   bool _showForm = false;
-  bool _verifying = false;
   bool _saving = false;
-  String? _verifiedName;
-  String? _verifyError;
 
   final _accountNumberCtrl = TextEditingController();
+  final _accountNameCtrl = TextEditingController();
   String _selectedBankCode = _saBanks.first['code']!;
   String _selectedBankName = _saBanks.first['name']!;
 
   @override
   void dispose() {
     _accountNumberCtrl.dispose();
+    _accountNameCtrl.dispose();
     super.dispose();
-  }
-
-  Future<void> _verify() async {
-    final accNum = _accountNumberCtrl.text.trim();
-    if (accNum.isEmpty) return;
-    setState(() {
-      _verifying = true;
-      _verifyError = null;
-      _verifiedName = null;
-    });
-    try {
-      final name = await DriverService.resolveBankAccount(
-        accountNumber: accNum,
-        bankCode: _selectedBankCode,
-      );
-      if (mounted) setState(() { _verifiedName = name; _verifying = false; });
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _verifying = false;
-          _verifyError = 'Could not verify this account. Check the number and bank.';
-        });
-      }
-    }
   }
 
   Future<void> _save() async {
     final accNum = _accountNumberCtrl.text.trim();
-    final name = _verifiedName;
-    if (accNum.isEmpty || name == null) return;
+    final name = _accountNameCtrl.text.trim();
+    if (accNum.isEmpty || name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Enter the account holder name and account number.'),
+      ));
+      return;
+    }
     setState(() => _saving = true);
     try {
       await DriverService.registerBankAccount(
@@ -336,8 +316,8 @@ class _BankAccountSectionState extends State<_BankAccountSection> {
         setState(() {
           _showForm = false;
           _saving = false;
-          _verifiedName = null;
           _accountNumberCtrl.clear();
+          _accountNameCtrl.clear();
         });
       }
     } catch (e) {
@@ -396,7 +376,7 @@ class _BankAccountSectionState extends State<_BankAccountSection> {
               ),
             ),
             GestureDetector(
-              onTap: () => setState(() { _showForm = true; _verifiedName = null; }),
+              onTap: () => setState(() => _showForm = true),
               child: Text('Change',
                   style: GoogleFonts.inter(
                       color: AppColors.gold,
@@ -461,10 +441,35 @@ class _BankAccountSectionState extends State<_BankAccountSection> {
                   setState(() {
                     _selectedBankCode = v;
                     _selectedBankName = bank['name']!;
-                    _verifiedName = null; // bank changed → re-verify
                   });
                 },
               ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text('Account Holder Name',
+              style: GoogleFonts.inter(
+                  color: AppColors.creamMuted, fontSize: 11,
+                  fontWeight: FontWeight.w600)),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _accountNameCtrl,
+            textCapitalization: TextCapitalization.words,
+            style: GoogleFonts.inter(color: AppColors.cream, fontSize: 14),
+            decoration: InputDecoration(
+              hintText: 'e.g. John M Dube',
+              hintStyle:
+                  GoogleFonts.inter(color: AppColors.creamMuted, fontSize: 13),
+              filled: true,
+              fillColor: AppColors.background,
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(color: AppColors.divider)),
+              enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(color: AppColors.divider)),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             ),
           ),
           const SizedBox(height: 12),
@@ -477,11 +482,6 @@ class _BankAccountSectionState extends State<_BankAccountSection> {
             controller: _accountNumberCtrl,
             keyboardType: TextInputType.number,
             style: GoogleFonts.inter(color: AppColors.cream, fontSize: 14),
-            onChanged: (_) {
-              if (_verifiedName != null || _verifyError != null) {
-                setState(() { _verifiedName = null; _verifyError = null; });
-              }
-            },
             decoration: InputDecoration(
               hintText: 'e.g. 1234567890',
               hintStyle:
@@ -499,50 +499,13 @@ class _BankAccountSectionState extends State<_BankAccountSection> {
             ),
           ),
 
-          // Verified name banner
-          if (_verifiedName != null) ...[
-            const SizedBox(height: 10),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.greenAccent.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.greenAccent.withValues(alpha: 0.4)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.verified_rounded,
-                      color: Colors.greenAccent, size: 16),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text('Verified: ${_verifiedName!}',
-                        style: GoogleFonts.inter(
-                            color: AppColors.cream,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600)),
-                  ),
-                ],
-              ),
-            ),
-          ],
-          if (_verifyError != null) ...[
-            const SizedBox(height: 10),
-            Text(_verifyError!,
-                style: GoogleFonts.inter(
-                    color: const Color(0xFFFF5252), fontSize: 12)),
-          ],
-
           const SizedBox(height: 16),
           Row(
             children: [
               if (driver.hasBankAccount) ...[
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: () => setState(() {
-                      _showForm = false;
-                      _verifiedName = null;
-                    }),
+                    onPressed: () => setState(() => _showForm = false),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: AppColors.creamMuted,
                       side: BorderSide(color: AppColors.divider),
@@ -555,47 +518,24 @@ class _BankAccountSectionState extends State<_BankAccountSection> {
                 ),
                 const SizedBox(width: 10),
               ],
-              // Verify button (until verified), then Save button
               Expanded(
-                child: _verifiedName == null
-                    ? ElevatedButton(
-                        onPressed: _verifying ? null : _verify,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.background,
-                          foregroundColor: AppColors.gold,
-                          side: BorderSide(color: AppColors.gold),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10)),
-                        ),
-                        child: _verifying
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2, color: AppColors.gold))
-                            : Text('Verify Account',
-                                style: GoogleFonts.inter(
-                                    fontWeight: FontWeight.w700)),
-                      )
-                    : ElevatedButton(
-                        onPressed: _saving ? null : _save,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.gold,
-                          foregroundColor: AppColors.background,
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10)),
-                        ),
-                        child: _saving
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: AppColors.background))
-                            : Text('Save Bank Account',
-                                style: GoogleFonts.inter(
-                                    fontWeight: FontWeight.w700)),
-                      ),
+                child: ElevatedButton(
+                  onPressed: _saving ? null : _save,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.gold,
+                    foregroundColor: AppColors.background,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                  ),
+                  child: _saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: AppColors.background))
+                      : Text('Save Bank Account',
+                          style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
+                ),
               ),
             ],
           ),
@@ -611,14 +551,11 @@ class _PayoutRow extends StatelessWidget {
 
   ({Color color, String label, IconData icon}) get _statusStyle {
     switch (payout.status) {
-      case 'success':
+      case 'paid':
+      case 'success': // legacy
         return (color: Colors.greenAccent, label: 'Paid', icon: Icons.check_circle_rounded);
-      case 'pending':
+      default: // pending
         return (color: const Color(0xFFFF9B21), label: 'Pending', icon: Icons.schedule_rounded);
-      case 'recipient_missing':
-        return (color: const Color(0xFFFF5252), label: 'Add bank', icon: Icons.error_outline_rounded);
-      default:
-        return (color: const Color(0xFFFF5252), label: 'Failed', icon: Icons.error_outline_rounded);
     }
   }
 
