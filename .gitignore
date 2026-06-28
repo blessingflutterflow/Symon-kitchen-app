@@ -56,3 +56,6 @@ seed_fix_beverages.js
 android/key.properties
 android/upload-keystore.jks
 **/*.jks
+
+# Firebase Hosting deploy cache
+.firebase/
