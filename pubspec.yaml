@@ -1,7 +1,7 @@
 name: symons_app
 description: "Symon's Kitchin — Food Delivery Marketplace"
 publish_to: 'none'
-version: 1.0.1+2
+version: 1.0.2+3
 
 environment:
   sdk: ^3.11.5
@@ -35,6 +35,14 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+
+# Local fork of flutter_callkit_incoming: the order-alert "call" never records
+# audio or uses the camera, so the foreground service uses the PHONE_CALL type
+# only (mic/camera FGS types + permissions removed) to satisfy Google Play.
+# See third_party/flutter_callkit_incoming/.../CallkitNotificationService.kt
+dependency_overrides:
+  flutter_callkit_incoming:
+    path: third_party/flutter_callkit_incoming
 
 flutter:
   uses-material-design: true

@@ -6,6 +6,12 @@
          path is bypassed. Removing the permission forces the plugin down the
          notification path, which actually plays our ringtone. -->
     <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" tools:node="remove"/>
+    <!-- The call-style order alert never records audio or uses the camera, so strip
+         these (pulled in by flutter_callkit_incoming) — avoids Play FGS video reviews. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" tools:node="remove"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" tools:node="remove"/>
+    <uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove"/>
+    <uses-permission android:name="android.permission.CAMERA" tools:node="remove"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
