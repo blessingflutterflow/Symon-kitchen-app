@@ -26,6 +26,7 @@ class _DriverApplicationScreenState extends State<DriverApplicationScreen> {
   final _phoneCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
   final _idCtrl = TextEditingController();
+  String _idType = 'sa_id'; // 'sa_id' (SA ID number) | 'passport'
 
   // Step 2 — licence
   final _licenceCtrl = TextEditingController();
@@ -77,6 +78,7 @@ class _DriverApplicationScreenState extends State<DriverApplicationScreen> {
         phone: _phoneCtrl.text,
         email: _emailCtrl.text,
         idNumber: _idCtrl.text,
+        idType: _idType,
         licenceNumber: _licenceCtrl.text,
         vehicleType: _vehicleType,
         vehicleReg: _vehicleRegCtrl.text,
@@ -164,9 +166,10 @@ class _DriverApplicationScreenState extends State<DriverApplicationScreen> {
   }
 
   Widget _buildStep0() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       _Field(label: 'Full Name', controller: _nameCtrl,
-          hint: 'As it appears on your ID'),
+          hint: 'As it appears on your ID or passport'),
       const SizedBox(height: 16),
       _Field(label: 'Phone Number', controller: _phoneCtrl,
           hint: '0821234567', keyboardType: TextInputType.phone),
@@ -175,10 +178,58 @@ class _DriverApplicationScreenState extends State<DriverApplicationScreen> {
           hint: 'you@example.com',
           keyboardType: TextInputType.emailAddress),
       const SizedBox(height: 16),
-      _Field(label: 'SA ID Number', controller: _idCtrl,
-          hint: '9001015009087', keyboardType: TextInputType.number),
+      // Document type — SA ID for locals, Passport for foreign nationals.
+      Text('Identity Document',
+          style: GoogleFonts.inter(
+              color: AppColors.creamMuted,
+              fontSize: 12,
+              fontWeight: FontWeight.w600)),
+      const SizedBox(height: 10),
+      Row(
+        children: [
+          Expanded(child: _docTypeChip('sa_id', 'SA ID')),
+          const SizedBox(width: 10),
+          Expanded(child: _docTypeChip('passport', 'Passport')),
+        ],
+      ),
+      const SizedBox(height: 16),
+      _Field(
+        label: _idType == 'passport' ? 'Passport Number' : 'SA ID Number',
+        controller: _idCtrl,
+        hint: _idType == 'passport' ? 'e.g. A01234567' : '9001015009087',
+        keyboardType: _idType == 'passport'
+            ? TextInputType.text
+            : TextInputType.number,
+      ),
     ],
   );
+
+  Widget _docTypeChip(String value, String label) {
+    final selected = _idType == value;
+    return GestureDetector(
+      onTap: () => setState(() => _idType = value),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected
+              ? AppColors.gold.withValues(alpha: 0.15)
+              : AppColors.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: selected ? AppColors.gold : AppColors.divider,
+            width: selected ? 1.5 : 1,
+          ),
+        ),
+        child: Text(label,
+            style: GoogleFonts.inter(
+              color: selected ? AppColors.gold : AppColors.creamMuted,
+              fontSize: 13,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            )),
+      ),
+    );
+  }
 
   Widget _buildStep1() => Column(
     crossAxisAlignment: CrossAxisAlignment.start,

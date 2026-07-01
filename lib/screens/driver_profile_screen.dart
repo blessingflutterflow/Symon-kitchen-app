@@ -261,7 +261,11 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                   const SizedBox(height: 28),
                   _SectionLabel('Verification'),
                   const SizedBox(height: 12),
-                  _ReadOnlyRow(label: 'SA ID Number', value: driver.idNumber),
+                  _ReadOnlyRow(
+                      label: driver.idType == 'passport'
+                          ? 'Passport Number'
+                          : 'SA ID Number',
+                      value: driver.idNumber),
                   const SizedBox(height: 10),
                   _ReadOnlyRow(
                     label: "Driver's Licence Number",

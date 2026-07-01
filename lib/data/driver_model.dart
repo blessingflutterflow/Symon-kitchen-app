@@ -27,6 +27,7 @@ class DriverModel {
   final String phone;
   final String email;
   final String idNumber;
+  final String idType; // 'sa_id' | 'passport'
   final String licenceNumber;
   final String vehicleType;
   final String vehicleReg;
@@ -44,6 +45,7 @@ class DriverModel {
     required this.phone,
     required this.email,
     required this.idNumber,
+    this.idType = 'sa_id',
     required this.licenceNumber,
     required this.vehicleType,
     required this.vehicleReg,
@@ -66,6 +68,7 @@ class DriverModel {
       phone: d['phone'] as String? ?? '',
       email: d['email'] as String? ?? '',
       idNumber: d['idNumber'] as String? ?? '',
+      idType: d['idType'] as String? ?? 'sa_id',
       licenceNumber: d['licenceNumber'] as String? ?? '',
       vehicleType: d['vehicleType'] as String? ?? '',
       vehicleReg: d['vehicleReg'] as String? ?? '',
@@ -151,6 +154,7 @@ class DriverService {
     required String phone,
     required String email,
     required String idNumber,
+    String idType = 'sa_id', // 'sa_id' | 'passport'
     required String licenceNumber,
     required String vehicleType,
     required String vehicleReg,
@@ -166,6 +170,7 @@ class DriverService {
       'phone': phone.trim(),
       'email': email.trim(),
       'idNumber': idNumber.trim(),
+      'idType': idType,
       'licenceNumber': licenceNumber.trim(),
       'vehicleType': vehicleType.trim(),
       'vehicleReg': vehicleReg.trim(),
